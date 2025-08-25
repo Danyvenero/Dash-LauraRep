@@ -1,0 +1,23 @@
+/* assets/style.css */
+
+body {
+    font-family: 'Roboto', sans-serif;
+    background-color: #F5F5F5;
+}
+
+#sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 20rem; /* Largura da sidebar */
+    padding: 2rem 1rem;
+    background-color: #f8f9fa; /* Um cinza claro */
+    box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+    overflow-y: auto; /* Adiciona scroll se o conteúdo for grande */
+}
+
+.content {
+    margin-left: 21rem; /* Deve ser um pouco maior que a largura da sidebar */
+    padding: 2rem 1rem;
+}
