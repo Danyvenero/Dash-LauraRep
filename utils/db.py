@@ -24,6 +24,90 @@ def init_db():
     with current_app.open_resource('schema.sql') as f:
         db.executescript(f.read().decode('utf8'))
 
+def init_database():
+    """Função standalone para inicialização do banco"""
+    import os
+    from flask import Flask
+    
+    # Criar app temporário para contexto
+    app = Flask(__name__, instance_relative_config=True)
+    app.config['DATABASE'] = 'instance/database.sqlite'
+    
+    # Criar diretório instance se não existir
+    os.makedirs('instance', exist_ok=True)
+    
+    with app.app_context():
+        # Ler e executar schema
+        schema_path = 'schema.sql'
+        if os.path.exists(schema_path):
+            with open(schema_path, 'r', encoding='utf-8') as f:
+                sql_script = f.read()
+                
+            conn = sqlite3.connect(app.config['DATABASE'])
+            conn.executescript(sql_script)
+            conn.close()
+        else:
+            # Schema básico se arquivo não existir
+            conn = sqlite3.connect(app.config['DATABASE'])
+            conn.executescript('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    is_active BOOLEAN NOT NULL DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                
+                CREATE TABLE IF NOT EXISTS datasets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    uploaded_by INTEGER NOT NULL,
+                    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    vendas_fingerprint TEXT,
+                    cot_fingerprint TEXT,
+                    FOREIGN KEY (uploaded_by) REFERENCES users (id)
+                );
+                
+                CREATE TABLE IF NOT EXISTS vendas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    dataset_id INTEGER,
+                    cod_cliente INTEGER,
+                    cliente TEXT,
+                    material INTEGER,
+                    produto TEXT,
+                    unidade_negocio TEXT,
+                    data_faturamento DATE,
+                    quantidade_faturada REAL,
+                    valor_faturado REAL,
+                    valor_entrada REAL,
+                    valor_carteira REAL,
+                    FOREIGN KEY (dataset_id) REFERENCES datasets (id)
+                );
+                
+                CREATE TABLE IF NOT EXISTS cotacoes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    dataset_id INTEGER,
+                    cod_cliente INTEGER,
+                    cliente TEXT,
+                    material INTEGER,
+                    data DATE,
+                    quantidade REAL,
+                    FOREIGN KEY (dataset_id) REFERENCES datasets (id)
+                );
+                
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value_json TEXT
+                );
+                
+                -- Índices para performance
+                CREATE INDEX IF NOT EXISTS idx_vendas_cliente ON vendas(cod_cliente, data_faturamento);
+                CREATE INDEX IF NOT EXISTS idx_vendas_material ON vendas(material);
+                CREATE INDEX IF NOT EXISTS idx_cotacoes_cliente ON cotacoes(cod_cliente, data);
+                CREATE INDEX IF NOT EXISTS idx_cotacoes_material ON cotacoes(material);
+            ''')
+            conn.close()
+
 @click.command('init-db')
 def init_db_command():
     """Limpa os dados existentes e cria novas tabelas."""

@@ -209,8 +209,206 @@ kpis_propostas_layout = dbc.Container([
 ], fluid=True)
 
 
-produtos_layout = dbc.Container([html.H1("Produtos (Bolhas)"), html.P("Esta funcionalidade será implementada em breve.")], fluid=True)
-funil_layout = dbc.Container([html.H1("Funil & Ações"), html.P("Esta funcionalidade será implementada em breve.")], fluid=True)
+produtos_layout = dbc.Container([
+    html.H1("Produtos (Bolhas)"),
+    html.P("Análise visual de clientes vs produtos com métricas de cotação e compra.", className="lead"),
+    html.Hr(),
+    
+    # Filtros
+    dbc.Card([
+        dbc.CardBody([
+            dbc.Row([
+                dbc.Col([
+                    html.Label("Ano de Referência"),
+                    dcc.Dropdown(
+                        id="filtro-ano-produtos",
+                        options=[
+                            {"label": "Todos", "value": "__ALL__"},
+                            {"label": "2023", "value": 2023},
+                            {"label": "2024", "value": 2024},
+                            {"label": "2025", "value": 2025}
+                        ],
+                        value="__ALL__"
+                    )
+                ], md=3),
+                dbc.Col([
+                    html.Label("Unidade de Negócio"),
+                    dcc.Dropdown(
+                        id="filtro-un-produtos",
+                        placeholder="Selecione...",
+                        multi=True
+                    )
+                ], md=3),
+                dbc.Col([
+                    html.Label("Top N Produtos"),
+                    dbc.Input(
+                        id="filtro-top-produtos",
+                        type="number",
+                        value=20,
+                        min=5,
+                        max=100
+                    )
+                ], md=2),
+                dbc.Col([
+                    html.Label("Top N Clientes"),
+                    dbc.Input(
+                        id="filtro-top-clientes-produtos",
+                        type="number",
+                        value=15,
+                        min=5,
+                        max=50
+                    )
+                ], md=2),
+                dbc.Col([
+                    html.Label("Paleta de Cores"),
+                    dcc.Dropdown(
+                        id="filtro-paleta-cores",
+                        options=[
+                            {"label": "Viridis", "value": "Viridis"},
+                            {"label": "Blues", "value": "Blues"},
+                            {"label": "Reds", "value": "Reds"},
+                            {"label": "RdYlBu", "value": "RdYlBu"}
+                        ],
+                        value="Viridis"
+                    )
+                ], md=2)
+            ])
+        ])
+    ], className="mb-4"),
+    
+    # Gráfico de bolhas
+    dbc.Row([
+        dbc.Col([
+            dcc.Loading(
+                dcc.Graph(id="grafico-bolhas-produtos", style={"height": "600px"})
+            )
+        ], width=12)
+    ]),
+    
+    # Botões de ação
+    dbc.Row([
+        dbc.Col([
+            dbc.ButtonGroup([
+                dbc.Button("Download CSV", id="btn-csv-produtos", color="secondary"),
+                dbc.Button("Gerar PDF por Cliente", id="btn-pdf-produtos", color="primary"),
+            ])
+        ])
+    ], className="mt-3"),
+    
+    dcc.Download(id="download-csv-produtos"),
+    dcc.Download(id="download-pdf-produtos")
+    
+], fluid=True)
+
+funil_layout = dbc.Container([
+    html.H1("Funil & Ações"),
+    html.P("Identifique clientes que precisam de atenção especial e ações comerciais.", className="lead"),
+    html.Hr(),
+    
+    # Filtros
+    dbc.Card([
+        dbc.CardBody([
+            dbc.Row([
+                dbc.Col([
+                    html.Label("Período de Análise"),
+                    dcc.Dropdown(
+                        id="filtro-periodo-funil",
+                        options=[
+                            {"label": "Últimos 12 meses", "value": 12},
+                            {"label": "Últimos 6 meses", "value": 6},
+                            {"label": "Últimos 3 meses", "value": 3},
+                            {"label": "Ano atual", "value": "current_year"}
+                        ],
+                        value=12
+                    )
+                ], md=4),
+                dbc.Col([
+                    html.Label("Threshold % Conversão Baixa"),
+                    dbc.Input(
+                        id="threshold-conversao-baixa",
+                        type="number",
+                        value=20,
+                        min=0,
+                        max=100,
+                        step=5
+                    )
+                ], md=4),
+                dbc.Col([
+                    html.Label("Dias sem Compra (Risco)"),
+                    dbc.Input(
+                        id="threshold-dias-risco",
+                        type="number",
+                        value=90,
+                        min=30,
+                        max=365,
+                        step=10
+                    )
+                ], md=4)
+            ])
+        ])
+    ], className="mb-4"),
+    
+    # Métricas do funil
+    dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader(html.H5("📊 Resumo do Funil")),
+                dbc.CardBody([
+                    html.Div(id="metricas-funil")
+                ])
+            ])
+        ], width=12)
+    ], className="mb-4"),
+    
+    # Listas de ação
+    dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader([
+                    html.H5("🎯 Lista A - Baixa Conversão, Alto Volume", className="mb-0"),
+                    html.Small("Clientes que cotam muito mas compram pouco", className="text-muted")
+                ]),
+                dbc.CardBody([
+                    html.Div(id="lista-a-container"),
+                    dbc.Button("Download Lista A (CSV)", id="btn-download-lista-a", 
+                             color="warning", size="sm", className="mt-2")
+                ])
+            ])
+        ], md=6),
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader([
+                    html.H5("⚠️ Lista B - Risco de Inatividade", className="mb-0"),
+                    html.Small("Clientes com muito tempo sem comprar", className="text-muted")
+                ]),
+                dbc.CardBody([
+                    html.Div(id="lista-b-container"),
+                    dbc.Button("Download Lista B (CSV)", id="btn-download-lista-b", 
+                             color="danger", size="sm", className="mt-2")
+                ])
+            ])
+        ], md=6)
+    ]),
+    
+    # Gráfico de funil
+    dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader(html.H5("📈 Análise Visual do Funil")),
+                dbc.CardBody([
+                    dcc.Loading(
+                        dcc.Graph(id="grafico-funil", style={"height": "400px"})
+                    )
+                ])
+            ])
+        ], width=12)
+    ], className="mt-4"),
+    
+    # Downloads
+    dcc.Download(id="download-lista-a"),
+    dcc.Download(id="download-lista-b")
+    
+], fluid=True)
 
 config_layout = dbc.Container([
     dcc.Location(id='config-url', refresh=True),

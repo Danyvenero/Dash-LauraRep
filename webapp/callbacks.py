@@ -1,4 +1,5 @@
 import plotly.express as px
+import plotly.graph_objects as go
 import dash
 from dash import html, dcc, Input, Output, State, callback_context, exceptions
 import dash_bootstrap_components as dbc
@@ -28,18 +29,6 @@ def update_visao_geral_kpis(style):
         return kpis_dict['entrada_pedidos'], kpis_dict['valor_carteira'], kpis_dict['faturamento']
     else:
         return "-", "-", "-"
-
-@app.callback(
-    Output("download-csv-kpis-cliente", "data"),
-    Input("btn-csv-kpis-cliente", "n_clicks"),
-    State("store-kpis-cliente-filtered", "data"),
-    prevent_initial_call=True,
-)
-def download_kpis_cliente_csv(n_clicks, json_data):
-    if not n_clicks or not json_data: raise exceptions.PreventUpdate
-    df = pd.read_json(StringIO(json_data), orient='split')
-    return dcc.send_data_frame(df.to_csv, f"kpis_por_cliente_{datetime.now().date()}.csv", index=False)
-
 
 # --- CALLBACKS DA PÁGINA KPIs DE PROPOSTAS ---
 @app.callback(
@@ -244,24 +233,6 @@ def update_propostas_page_visuals(selected_clients, ano_filtro, mes_filtro, top_
             fig.update_layout(template="plotly_white")
     return tabela, fig
 
-@app.callback(
-    Output("download-lista-sugestao", "data"),
-    Input("btn-gerar-lista", "n_clicks"),
-    State('filtro-cliente', 'value'),
-    prevent_initial_call=True
-)
-def generate_and_download_list(n_clicks, selected_clients):
-    if not n_clicks: raise exceptions.PreventUpdate
-    df_vendas = db.get_clean_vendas_as_df()
-    df_cotacoes = db.get_clean_cotacoes_as_df()
-    df_sugestao = kpis.generate_purchase_list(df_vendas, df_cotacoes, selected_clients)
-    if df_sugestao.empty: raise exceptions.PreventUpdate
-    filename = f"sugestao_compra_{'_'.join(selected_clients)}.xlsx" if selected_clients else "sugestao_compra_mercado.xlsx"
-    return dcc.send_data_frame(df_sugestao.to_excel, filename, index=False)
-
-
-# --- CALLBACKS DA PÁGINA DE CONFIGURAÇÕES ---
-# ... (manter os callbacks da página de configurações como estão) ...
 
 # --- CALLBACKS DA PÁGINA DE CONFIGURAÇÕES ---
 @app.callback(
@@ -394,12 +365,6 @@ def update_kpis_cliente_visuals(ano_filtro, mes_filtro, clientes, canais, dias_s
         fig_scatter = {}
     tabela = dbc.Table.from_dataframe(df_kpis, striped=True, bordered=True, hover=True, responsive=True) if not df_kpis.empty else dbc.Alert('Nenhum dado disponível.', color='warning')
     # Histórico
-    historico_map = {
-        'total_comprado_valor': 'valor_faturado',
-        'total_comprado_qtd': 'quantidade_faturada',
-        'mix_produtos': 'mix_produtos',
-        'pct_mix_produtos': 'pct_mix_produtos'
-    }
     # Validação para DataFrame vazio e colunas de data
     if df_vendas.empty or 'data_faturamento' not in df_vendas.columns or not pd.api.types.is_datetime64_any_dtype(df_vendas['data_faturamento']):
         fig_scatter = {}
@@ -408,9 +373,28 @@ def update_kpis_cliente_visuals(ano_filtro, mes_filtro, clientes, canais, dias_s
         return fig_scatter, tabela, fig_hist
     # Bloco do gráfico histórico corretamente indentado
     if not df_vendas.empty and historico_kpis:
-        # Mapear colunas de vendas para os KPIs selecionados
-        colunas_existentes = [historico_map.get(kpi, kpi) for kpi in historico_kpis if historico_map.get(kpi, kpi) in df_vendas.columns]
-        if colunas_existentes:
+        # Preparar dados históricos - calcular KPIs por ano e cliente
+        try:
+            from utils import kpis as kpis_module
+            df_vendas_hist = df_vendas.copy()
+            df_vendas_hist['ano'] = df_vendas_hist['data_faturamento'].dt.year
+            
+            # Lista para armazenar dados históricos
+            dados_historicos = []
+            
+            for ano in df_vendas_hist['ano'].unique():
+                df_ano = df_vendas_hist[df_vendas_hist['ano'] == ano]
+                df_kpis_ano = kpis_module.calculate_kpis_por_cliente(df_ano)
+                df_kpis_ano['ano'] = ano
+                dados_historicos.append(df_kpis_ano)
+            
+            if dados_historicos:
+                df_hist_kpis = pd.concat(dados_historicos, ignore_index=True)
+                
+                # Mapear KPIs selecionados para colunas disponíveis
+                colunas_existentes = [kpi for kpi in historico_kpis if kpi in df_hist_kpis.columns]
+                
+                if colunas_existentes and 'cliente' in df_hist_kpis.columns:
             # Adicionar coluna de ano
             df_vendas['ano'] = df_vendas['data_faturamento'].dt.year.astype(int)
             clientes_unicos = df_vendas['cliente'].unique()
@@ -463,3 +447,344 @@ def upload_vendas_callback(contents, filename, user_id):
     except Exception as e:
         print(f"Erro no upload: {e}")
         return dbc.Alert(f"Erro no upload: {e}", color="danger")
+
+# --- CALLBACKS PARA PÁGINA DE PRODUTOS (BOLHAS) ---
+@app.callback(
+    Output('grafico-bolhas-produtos', 'figure'),
+    Input('filtro-ano-produtos', 'value'),
+    Input('filtro-un-produtos', 'value'),
+    Input('filtro-top-produtos', 'value'),
+    Input('filtro-top-clientes-produtos', 'value'),
+    Input('filtro-paleta-cores', 'value'),
+    Input('page-produtos-content', 'style')
+)
+def update_produtos_bubble_chart(ano, unidades, top_produtos, top_clientes, paleta, style):
+    if not style or style.get('display') != 'block':
+        raise exceptions.PreventUpdate
+    
+    try:
+        from utils.visualizations import create_bubble_chart
+        from utils.kpis import calculate_produtos_matrix
+        
+        df_vendas = db.get_clean_vendas_as_df()
+        df_cotacoes = db.get_clean_cotacoes_as_df()
+        
+        # Filtrar por ano se especificado
+        if ano and ano != "__ALL__":
+            if 'data_faturamento' in df_vendas.columns:
+                df_vendas = df_vendas[pd.to_datetime(df_vendas['data_faturamento']).dt.year == int(ano)]
+            if 'data' in df_cotacoes.columns:
+                df_cotacoes = df_cotacoes[pd.to_datetime(df_cotacoes['data']).dt.year == int(ano)]
+        
+        # Filtrar por unidade de negócio
+        if unidades:
+            if 'unidade_negocio' in df_vendas.columns:
+                df_vendas = df_vendas[df_vendas['unidade_negocio'].isin(unidades)]
+            if 'unidade_negocio' in df_cotacoes.columns:
+                df_cotacoes = df_cotacoes[df_cotacoes['unidade_negocio'].isin(unidades)]
+        
+        # Calcular matriz de produtos
+        df_matrix = calculate_produtos_matrix(
+            df_vendas, df_cotacoes, 
+            top_produtos=top_produtos or 20, 
+            top_clientes=top_clientes or 15
+        )
+        
+        # Criar gráfico
+        fig = create_bubble_chart(df_matrix, color_scale=paleta or 'Viridis')
+        return fig
+        
+    except Exception as e:
+        print(f"Erro ao gerar gráfico de bolhas: {e}")
+        fig = go.Figure()
+        fig.add_annotation(text=f"Erro ao carregar dados: {str(e)}", x=0.5, y=0.5)
+        return fig
+
+@app.callback(
+    Output('filtro-un-produtos', 'options'),
+    Input('page-produtos-content', 'style')
+)
+def update_un_options_produtos(style):
+    if style and style.get('display') == 'block':
+        try:
+            df_vendas = db.get_clean_vendas_as_df()
+            df_cotacoes = db.get_clean_cotacoes_as_df()
+            
+            unidades = set()
+            if 'unidade_negocio' in df_vendas.columns:
+                unidades.update(df_vendas['unidade_negocio'].dropna().unique())
+            if 'unidade_negocio' in df_cotacoes.columns:
+                unidades.update(df_cotacoes['unidade_negocio'].dropna().unique())
+            
+            return [{'label': un, 'value': un} for un in sorted(unidades)]
+        except:
+            return []
+    return []
+
+@app.callback(
+    Output("download-csv-produtos", "data"),
+    Input("btn-csv-produtos", "n_clicks"),
+    State('filtro-ano-produtos', 'value'),
+    State('filtro-un-produtos', 'value'),
+    State('filtro-top-produtos', 'value'),
+    State('filtro-top-clientes-produtos', 'value'),
+    prevent_initial_call=True
+)
+def download_produtos_csv(n_clicks, ano, unidades, top_produtos, top_clientes):
+    if not n_clicks:
+        raise exceptions.PreventUpdate
+    
+    try:
+        from utils.kpis import calculate_produtos_matrix
+        
+        df_vendas = db.get_clean_vendas_as_df()
+        df_cotacoes = db.get_clean_cotacoes_as_df()
+        
+        # Aplicar filtros (mesmo código do gráfico)
+        if ano and ano != "__ALL__":
+            if 'data_faturamento' in df_vendas.columns:
+                df_vendas = df_vendas[pd.to_datetime(df_vendas['data_faturamento']).dt.year == int(ano)]
+            if 'data' in df_cotacoes.columns:
+                df_cotacoes = df_cotacoes[pd.to_datetime(df_cotacoes['data']).dt.year == int(ano)]
+        
+        if unidades:
+            if 'unidade_negocio' in df_vendas.columns:
+                df_vendas = df_vendas[df_vendas['unidade_negocio'].isin(unidades)]
+            if 'unidade_negocio' in df_cotacoes.columns:
+                df_cotacoes = df_cotacoes[df_cotacoes['unidade_negocio'].isin(unidades)]
+        
+        df_matrix = calculate_produtos_matrix(
+            df_vendas, df_cotacoes,
+            top_produtos=top_produtos or 20,
+            top_clientes=top_clientes or 15
+        )
+        
+        return dcc.send_data_frame(
+            df_matrix.to_csv, 
+            f"analise_produtos_{datetime.now().date()}.csv",
+            index=False
+        )
+    except Exception as e:
+        print(f"Erro no download CSV produtos: {e}")
+        raise exceptions.PreventUpdate
+
+# --- CALLBACKS PARA PÁGINA DE FUNIL & AÇÕES ---
+@app.callback(
+    Output('metricas-funil', 'children'),
+    Output('lista-a-container', 'children'),
+    Output('lista-b-container', 'children'),
+    Output('grafico-funil', 'figure'),
+    Input('filtro-periodo-funil', 'value'),
+    Input('threshold-conversao-baixa', 'value'),
+    Input('threshold-dias-risco', 'value'),
+    Input('page-funil-content', 'style')
+)
+def update_funil_analysis(periodo, threshold_conversao, threshold_dias, style):
+    if not style or style.get('display') != 'block':
+        raise exceptions.PreventUpdate
+    
+    try:
+        from utils.kpis import calculate_funil_metrics
+        from utils.visualizations import create_funnel_chart
+        
+        df_vendas = db.get_clean_vendas_as_df()
+        df_cotacoes = db.get_clean_cotacoes_as_df()
+        
+        # Calcular métricas do funil
+        funil_metrics = calculate_funil_metrics(
+            df_vendas, df_cotacoes,
+            periodo_meses=periodo or 12,
+            threshold_conversao=threshold_conversao or 20,
+            threshold_dias_risco=threshold_dias or 90
+        )
+        
+        # Métricas gerais
+        metricas_cards = [
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(funil_metrics['total_clientes_cotaram'], className="card-title"),
+                            html.P("Clientes que Cotaram", className="card-text")
+                        ])
+                    ], color="info", outline=True)
+                ], md=4),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(funil_metrics['total_clientes_compraram'], className="card-title"),
+                            html.P("Clientes que Compraram", className="card-text")
+                        ])
+                    ], color="success", outline=True)
+                ], md=4),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{funil_metrics['taxa_conversao_geral']:.1f}%", className="card-title"),
+                            html.P("Taxa de Conversão Geral", className="card-text")
+                        ])
+                    ], color="primary", outline=True)
+                ], md=4)
+            ])
+        ]
+        
+        # Lista A - Baixa conversão, alto volume
+        lista_a = funil_metrics['lista_a'].head(10)
+        lista_a_items = []
+        for _, row in lista_a.iterrows():
+            lista_a_items.append(
+                dbc.ListGroupItem([
+                    html.Div([
+                        html.Strong(row['cliente'][:30] + "..." if len(str(row['cliente'])) > 30 else str(row['cliente'])),
+                        html.Br(),
+                        html.Small(f"Conversão: {row['conversao_pct']:.1f}% | Qtd Cotada: {row['quantidade']:,.0f}"),
+                    ])
+                ])
+            )
+        
+        lista_a_component = dbc.ListGroup(lista_a_items) if lista_a_items else html.P("Nenhum cliente encontrado")
+        
+        # Lista B - Risco de inatividade
+        lista_b = funil_metrics['lista_b'].head(10)
+        lista_b_items = []
+        for _, row in lista_b.iterrows():
+            lista_b_items.append(
+                dbc.ListGroupItem([
+                    html.Div([
+                        html.Strong(row['cliente'][:30] + "..." if len(str(row['cliente'])) > 30 else str(row['cliente'])),
+                        html.Br(),
+                        html.Small(f"Dias sem compra: {row['dias_sem_compra']} | Última qtd: {row['quantidade_faturada']:,.0f}"),
+                    ])
+                ])
+            )
+        
+        lista_b_component = dbc.ListGroup(lista_b_items) if lista_b_items else html.P("Nenhum cliente encontrado")
+        
+        # Gráfico do funil
+        fig_funil = create_funnel_chart(funil_metrics['funil_completo'])
+        
+        return metricas_cards, lista_a_component, lista_b_component, fig_funil
+        
+    except Exception as e:
+        print(f"Erro na análise do funil: {e}")
+        error_msg = html.P(f"Erro ao carregar dados: {str(e)}")
+        empty_fig = go.Figure()
+        return error_msg, error_msg, error_msg, empty_fig
+
+@app.callback(
+    Output("download-lista-a", "data"),
+    Input("btn-download-lista-a", "n_clicks"),
+    State('filtro-periodo-funil', 'value'),
+    State('threshold-conversao-baixa', 'value'),
+    State('threshold-dias-risco', 'value'),
+    prevent_initial_call=True
+)
+def download_lista_a(n_clicks, periodo, threshold_conversao, threshold_dias):
+    if not n_clicks:
+        raise exceptions.PreventUpdate
+    
+    try:
+        from utils.kpis import calculate_funil_metrics
+        
+        df_vendas = db.get_clean_vendas_as_df()
+        df_cotacoes = db.get_clean_cotacoes_as_df()
+        
+        funil_metrics = calculate_funil_metrics(
+            df_vendas, df_cotacoes,
+            periodo_meses=periodo or 12,
+            threshold_conversao=threshold_conversao or 20,
+            threshold_dias_risco=threshold_dias or 90
+        )
+        
+        lista_a = funil_metrics['lista_a']
+        return dcc.send_data_frame(
+            lista_a.to_csv,
+            f"lista_a_baixa_conversao_{datetime.now().date()}.csv",
+            index=False
+        )
+    except Exception as e:
+        print(f"Erro no download Lista A: {e}")
+        raise exceptions.PreventUpdate
+
+@app.callback(
+    Output("download-lista-b", "data"),
+    Input("btn-download-lista-b", "n_clicks"),
+    State('filtro-periodo-funil', 'value'),
+    State('threshold-conversao-baixa', 'value'),
+    State('threshold-dias-risco', 'value'),
+    prevent_initial_call=True
+)
+def download_lista_b(n_clicks, periodo, threshold_conversao, threshold_dias):
+    if not n_clicks:
+        raise exceptions.PreventUpdate
+    
+    try:
+        from utils.kpis import calculate_funil_metrics
+        
+        df_vendas = db.get_clean_vendas_as_df()
+        df_cotacoes = db.get_clean_cotacoes_as_df()
+        
+        funil_metrics = calculate_funil_metrics(
+            df_vendas, df_cotacoes,
+            periodo_meses=periodo or 12,
+            threshold_conversao=threshold_conversao or 20,
+            threshold_dias_risco=threshold_dias or 90
+        )
+        
+        lista_b = funil_metrics['lista_b']
+        return dcc.send_data_frame(
+            lista_b.to_csv,
+            f"lista_b_risco_inatividade_{datetime.now().date()}.csv",
+            index=False
+        )
+    except Exception as e:
+        print(f"Erro no download Lista B: {e}")
+        raise exceptions.PreventUpdate
+
+# --- CALLBACK PARA GERAÇÃO DE PDF POR CLIENTE ---
+@app.callback(
+    Output("download-pdf-produtos", "data"),
+    Input("btn-pdf-produtos", "n_clicks"),
+    State('filtro-ano-produtos', 'value'),
+    prevent_initial_call=True
+)
+def generate_client_pdf_report(n_clicks, ano):
+    if not n_clicks:
+        raise exceptions.PreventUpdate
+    
+    try:
+        from utils.report import generate_client_pdf, create_chart_for_pdf
+        
+        df_vendas = db.get_clean_vendas_as_df()
+        df_cotacoes = db.get_clean_cotacoes_as_df()
+        
+        # Filtrar por ano se especificado
+        if ano and ano != "__ALL__":
+            if 'data_faturamento' in df_vendas.columns:
+                df_vendas = df_vendas[pd.to_datetime(df_vendas['data_faturamento']).dt.year == int(ano)]
+        
+        # Pegar o cliente com maior volume (exemplo)
+        if not df_vendas.empty:
+            top_client = df_vendas.groupby(['cod_cliente', 'cliente'])['valor_faturado'].sum().idxmax()
+            client_code, client_name = top_client
+            client_data = df_vendas[df_vendas['cod_cliente'] == client_code]
+            
+            # Criar gráfico para o PDF
+            monthly_data = client_data.groupby(pd.to_datetime(client_data['data_faturamento']).dt.to_period('M'))['valor_faturado'].sum()
+            chart_b64 = create_chart_for_pdf(monthly_data, 'bar')
+            
+            charts_data = {'image_base64': chart_b64} if chart_b64 else None
+            
+            # Gerar PDF
+            pdf_bytes = generate_client_pdf(client_data, client_name, charts_data)
+            
+            return dcc.send_bytes(
+                pdf_bytes,
+                f"relatorio_{client_name}_{datetime.now().date()}.pdf"
+            )
+        else:
+            raise exceptions.PreventUpdate
+            
+    except Exception as e:
+        print(f"Erro na geração do PDF: {e}")
+        raise exceptions.PreventUpdate

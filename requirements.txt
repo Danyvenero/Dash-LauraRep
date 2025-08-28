@@ -5,3 +5,5 @@ dash
 dash-bootstrap-components
 werkzeug
 xlrd
+reportlab
+kaleido

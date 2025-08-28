@@ -28,3 +28,4 @@ app.layout = main_layout
 from . import auth
 from . import callbacks_uploads
 from . import callbacks
+from . import callbacks_downloads

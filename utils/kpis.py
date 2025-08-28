@@ -48,6 +48,170 @@ def calculate_kpis_por_cliente(df_vendas, df_cotacoes):
 
 # --- FUNÇÕES PARA A PÁGINA DE PROPOSTAS ---
 
+def calculate_funil_metrics(df_vendas, df_cotacoes, periodo_meses=12, threshold_conversao=20, threshold_dias_risco=90):
+    """
+    Calcula métricas do funil de vendas
+    
+    Args:
+        df_vendas: DataFrame de vendas
+        df_cotacoes: DataFrame de cotações
+        periodo_meses: Período em meses para análise
+        threshold_conversao: % limite para baixa conversão
+        threshold_dias_risco: Dias limite para risco de inatividade
+    
+    Returns:
+        dict: Métricas do funil
+    """
+    hoje = datetime.now()
+    data_limite = hoje - pd.DateOffset(months=periodo_meses)
+    
+    # Filtrar por período
+    if 'data_faturamento' in df_vendas.columns:
+        df_vendas_periodo = df_vendas[pd.to_datetime(df_vendas['data_faturamento']) >= data_limite]
+    else:
+        df_vendas_periodo = df_vendas
+        
+    if 'data' in df_cotacoes.columns:
+        df_cotacoes_periodo = df_cotacoes[pd.to_datetime(df_cotacoes['data']) >= data_limite]
+    else:
+        df_cotacoes_periodo = df_cotacoes
+    
+    # Calcular conversões por cliente
+    cotacoes_por_cliente = df_cotacoes_periodo.groupby('cod_cliente').agg({
+        'quantidade': 'sum',
+        'cliente': 'first'
+    }).reset_index()
+    
+    vendas_por_cliente = df_vendas_periodo.groupby('cod_cliente').agg({
+        'quantidade_faturada': 'sum',
+        'data_faturamento': 'max'
+    }).reset_index()
+    
+    # Merge para calcular conversão
+    funil_data = pd.merge(cotacoes_por_cliente, vendas_por_cliente, on='cod_cliente', how='left')
+    funil_data['quantidade_faturada'] = funil_data['quantidade_faturada'].fillna(0)
+    funil_data['conversao_pct'] = np.where(
+        funil_data['quantidade'] > 0,
+        (funil_data['quantidade_faturada'] / funil_data['quantidade']) * 100,
+        0
+    )
+    
+    # Calcular dias sem compra
+    funil_data['dias_sem_compra'] = np.where(
+        funil_data['data_faturamento'].notna(),
+        (hoje - pd.to_datetime(funil_data['data_faturamento'])).dt.days,
+        999
+    )
+    
+    # Lista A: Baixa conversão, alto volume
+    lista_a = funil_data[
+        (funil_data['conversao_pct'] < threshold_conversao) & 
+        (funil_data['quantidade'] > funil_data['quantidade'].quantile(0.75))
+    ].sort_values('quantidade', ascending=False)
+    
+    # Lista B: Risco de inatividade
+    lista_b = funil_data[
+        funil_data['dias_sem_compra'] > threshold_dias_risco
+    ].sort_values('dias_sem_compra', ascending=False)
+    
+    # Métricas gerais
+    total_clientes_cotaram = len(cotacoes_por_cliente)
+    total_clientes_compraram = len(vendas_por_cliente)
+    taxa_conversao_geral = (total_clientes_compraram / total_clientes_cotaram * 100) if total_clientes_cotaram > 0 else 0
+    
+    return {
+        'total_clientes_cotaram': total_clientes_cotaram,
+        'total_clientes_compraram': total_clientes_compraram,
+        'taxa_conversao_geral': round(taxa_conversao_geral, 2),
+        'lista_a': lista_a,
+        'lista_b': lista_b,
+        'funil_completo': funil_data
+    }
+
+def calculate_produtos_matrix(df_vendas, df_cotacoes, top_produtos=20, top_clientes=15):
+    """
+    Calcula matriz de produtos vs clientes para gráfico de bolhas
+    """
+    if df_cotacoes.empty:
+        return pd.DataFrame()
+    
+    # Agrupar cotações por cliente e material
+    cotacoes_matrix = df_cotacoes.groupby(['cod_cliente', 'cliente', 'material']).agg({
+        'quantidade': 'sum'
+    }).reset_index()
+    
+    # Agrupar vendas por cliente e material
+    if not df_vendas.empty:
+        vendas_matrix = df_vendas.groupby(['cod_cliente', 'material']).agg({
+            'quantidade_faturada': 'sum'
+        }).reset_index()
+        
+        # Merge para calcular % não comprado
+        matrix = pd.merge(cotacoes_matrix, vendas_matrix, on=['cod_cliente', 'material'], how='left')
+        matrix['quantidade_faturada'] = matrix['quantidade_faturada'].fillna(0)
+        matrix['pct_nao_comprado'] = np.where(
+            matrix['quantidade'] > 0,
+            ((matrix['quantidade'] - matrix['quantidade_faturada']) / matrix['quantidade']) * 100,
+            0
+        )
+    else:
+        matrix = cotacoes_matrix.copy()
+        matrix['quantidade_faturada'] = 0
+        matrix['pct_nao_comprado'] = 100
+    
+    # Filtrar top produtos e clientes
+    top_materiais = matrix.groupby('material')['quantidade'].sum().nlargest(top_produtos).index
+    top_clientes_list = matrix.groupby(['cod_cliente', 'cliente'])['quantidade'].sum().nlargest(top_clientes).index
+    
+    matrix_filtered = matrix[
+        matrix['material'].isin(top_materiais) & 
+        matrix[['cod_cliente', 'cliente']].apply(tuple, axis=1).isin(top_clientes_list)
+    ]
+    
+    return matrix_filtered
+
+def get_client_recommendations(client_code, df_vendas, df_cotacoes):
+    """
+    Gera recomendações específicas para um cliente
+    """
+    client_vendas = df_vendas[df_vendas['cod_cliente'] == client_code]
+    client_cotacoes = df_cotacoes[df_cotacoes['cod_cliente'] == client_code]
+    
+    recommendations = []
+    
+    if client_cotacoes.empty:
+        recommendations.append("Cliente não possui histórico de cotações recentes.")
+        return recommendations
+    
+    # Produtos cotados mas não comprados
+    materiais_cotados = set(client_cotacoes['material'].unique())
+    materiais_comprados = set(client_vendas['material'].unique()) if not client_vendas.empty else set()
+    materiais_nao_comprados = materiais_cotados - materiais_comprados
+    
+    if materiais_nao_comprados:
+        recommendations.append(f"Cliente cotou {len(materiais_nao_comprados)} produtos que não comprou. Foco em follow-up.")
+    
+    # Análise de frequência
+    if not client_vendas.empty and 'data_faturamento' in client_vendas.columns:
+        ultima_compra = pd.to_datetime(client_vendas['data_faturamento']).max()
+        dias_sem_compra = (datetime.now() - ultima_compra).days
+        
+        if dias_sem_compra > 90:
+            recommendations.append(f"Cliente sem comprar há {dias_sem_compra} dias. Agendar visita comercial.")
+        elif dias_sem_compra > 30:
+            recommendations.append("Cliente em período normal. Manter contato regular.")
+    
+    # Volume de cotações vs compras
+    vol_cotado = client_cotacoes['quantidade'].sum()
+    vol_comprado = client_vendas['quantidade_faturada'].sum() if not client_vendas.empty else 0
+    
+    if vol_cotado > 0:
+        conversao = (vol_comprado / vol_cotado) * 100
+        if conversao < 30:
+            recommendations.append(f"Taxa de conversão baixa ({conversao:.1f}%). Revisar proposta comercial.")
+    
+    return recommendations
+
 def calculate_material_analysis(df_vendas, df_cotacoes):
     if df_cotacoes.empty: return pd.DataFrame()
     df_cotacoes.loc[:, 'data'] = pd.to_datetime(df_cotacoes['data'])
