@@ -8,3 +8,31 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Database files
+instance/
+*.sqlite
+*.sqlite3
+*.db
+
+# Environment variables
+.env
+.env.local
+
+# IDE files
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# Log files
+*.log
+logs/
+
+# Cache directories
+.cache/
+.pytest_cache/
