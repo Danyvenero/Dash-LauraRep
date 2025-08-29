@@ -5,7 +5,7 @@ from utils import db
 import numpy as np
 
 def transform_vendas():
-    print("Iniciando ETL de Vendas com a lógica de funil completa...")
+    print("Iniciando ETL de Vendas...")
     df_raw = db.get_raw_data_as_df('raw_vendas')
     if df_raw.empty:
         print("Nenhum dado bruto de vendas para processar.")
@@ -19,7 +19,8 @@ def transform_vendas():
         'Data Faturamento': 'data_faturamento', 'Qtd. Entrada': 'quantidade_entrada', 
         'Qtd. Carteira': 'quantidade_carteira', 'Qtd. ROL': 'quantidade_faturada', 
         'Vlr. Entrada': 'valor_entrada', 'Vlr. Carteira': 'valor_carteira', 'Vlr. ROL': 'valor_faturado',
-        'Canal Distribuição': 'canal_distribuicao'
+        'Canal Distribuição': 'canal_distribuicao',
+        'Cód. Cliente': 'cod_cliente', 'Data Fat.': 'data_faturamento'  # Adicionar mapeamentos alternativos
     }, inplace=True)
 
     final_cols = [
