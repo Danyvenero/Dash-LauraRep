@@ -24,25 +24,74 @@ def _calculate_global_mix(df_vendas):
 def calculate_kpis_por_cliente(df_vendas, df_cotacoes):
     if df_vendas.empty: return pd.DataFrame()
     df_vendas = df_vendas.copy()
+    
     df_vendas.loc[:, 'data_faturamento'] = pd.to_datetime(df_vendas['data_faturamento'], errors='coerce')
+    
+    # Manter registros que têm data válida OU que têm valor_faturado válido (mesmo sem data)
+    if 'valor_faturado' in df_vendas.columns:
+        mask_validos = (~df_vendas['data_faturamento'].isnull()) | (~df_vendas['valor_faturado'].isnull() & (df_vendas['valor_faturado'] != 0))
+        df_vendas = df_vendas[mask_validos]
+    else:
+        df_vendas = df_vendas.dropna(subset=['data_faturamento'])
+    
+    if df_vendas.empty:
+        return pd.DataFrame()
+    
     hoje = datetime.now()
     total_mix_global = _calculate_global_mix(df_vendas)
+    
+    # Verificar qual coluna usar para valor - PRIORIZAR valor_faturado
+    valor_col = None
+    # Ordem de prioridade: valor_faturado, valor_liquido, valor, ROL
+    for col in ['valor_faturado', 'valor_liquido', 'valor', 'ROL', 'rol', 'total_valor']:
+        if col in df_vendas.columns:
+            valor_col = col
+            break
+    
+    if valor_col is None:
+        return pd.DataFrame()
+    
+    # Verificar qual coluna usar para quantidade  
+    qtd_col = None
+    for col in ['quantidade_faturada', 'quantidade', 'qtd']:
+        if col in df_vendas.columns:
+            qtd_col = col
+            break
+    
+    if qtd_col is None:
+        return pd.DataFrame()
+    
     kpis_vendas = df_vendas.groupby('cod_cliente').agg(
-        cliente=('cliente', 'first'), ultima_compra=('data_faturamento', 'max'),
-        total_comprado_valor=('valor_faturado', 'sum'), total_comprado_qtd=('quantidade_faturada', 'sum'),
-        mix_produtos=('material', 'nunique'), unidades_negocio=('unidade_negocio', 'nunique')
+        cliente=('cliente', 'first'), 
+        ultima_compra=('data_faturamento', 'max'),
+        total_comprado_valor=(valor_col, 'sum'), 
+        total_comprado_qtd=(qtd_col, 'sum'),
+        mix_produtos=('material', 'nunique'), 
+        unidades_negocio=('unidade_negocio', 'nunique')
     ).reset_index()
+    
     kpis_vendas['dias_sem_compra'] = (hoje - kpis_vendas['ultima_compra']).dt.days
     kpis_cotacoes = df_cotacoes.groupby('cod_cliente').agg(total_cotado_qtd=('quantidade', 'sum')).reset_index()
     df_kpis = pd.merge(kpis_vendas, kpis_cotacoes, on='cod_cliente', how='left')
     df_kpis['total_cotado_qtd'] = df_kpis['total_cotado_qtd'].fillna(0)
+    
+    # CORREÇÃO 1: % Mix Produtos - limitando a 100% máximo
     df_kpis['pct_mix_produtos'] = (df_kpis['mix_produtos'] / total_mix_global) * 100
+    df_kpis['pct_mix_produtos'] = df_kpis['pct_mix_produtos'].clip(upper=100)  # Limitar a 100%
+    
+    # CORREÇÃO 2: % Não Comprado - limitando entre 0% e 100%
     df_kpis.loc[:, 'pct_nao_comprado'] = 0.0
     non_zero_mask = df_kpis['total_cotado_qtd'] > 0
     df_kpis.loc[non_zero_mask, 'pct_nao_comprado'] = ((df_kpis.loc[non_zero_mask, 'total_cotado_qtd'] - df_kpis.loc[non_zero_mask, 'total_comprado_qtd']) / df_kpis.loc[non_zero_mask, 'total_cotado_qtd']) * 100
+    
+    # Limitar % Não Comprado entre 0% e 100% (evitar valores negativos e >100%)
+    df_kpis['pct_nao_comprado'] = df_kpis['pct_nao_comprado'].clip(lower=0, upper=100)
+    
+    # CORREÇÃO 3: Arredondamento para 0 casas decimais conforme solicitado
     df_kpis['total_comprado_valor'] = df_kpis['total_comprado_valor'].round(2)
-    df_kpis['pct_nao_comprado'] = df_kpis['pct_nao_comprado'].round(2)
-    df_kpis['pct_mix_produtos'] = df_kpis['pct_mix_produtos'].round(2)
+    df_kpis['pct_nao_comprado'] = df_kpis['pct_nao_comprado'].round(0)  # 0 casas decimais
+    df_kpis['pct_mix_produtos'] = df_kpis['pct_mix_produtos'].round(0)  # 0 casas decimais
+    
     df_kpis.sort_values(by='total_comprado_valor', ascending=False, inplace=True)
     return df_kpis
 

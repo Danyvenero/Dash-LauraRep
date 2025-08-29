@@ -85,7 +85,7 @@ kpis_cliente_layout = dbc.Container([
                 dbc.Col(
                     html.Div([
                         html.Label("Filtrar por Ano de Faturamento (intervalo)"),
-                        dcc.RangeSlider(id='filtro-ano-kpis-cliente', min=2020, max=2025, step=1, value=[2020,2025], marks={str(y): str(y) for y in range(2020, 2026)}, tooltip={"placement": "bottom", "always_visible": True}),
+                        dcc.RangeSlider(id='filtro-ano-kpis-cliente', min=2020, max=2025, step=1, value=[2024,2024], marks={str(y): str(y) for y in range(2020, 2026)}, tooltip={"placement": "bottom", "always_visible": True}),
                         html.Label("Filtrar por Mês de Faturamento (intervalo)", style={"marginTop": "1em"}),
                         dcc.RangeSlider(id='filtro-mes-kpis-cliente', min=1, max=12, step=1, value=[1,12], marks={str(m): str(m) for m in range(1, 13)}, tooltip={"placement": "bottom", "always_visible": True})
                     ]), md=4
@@ -130,11 +130,14 @@ kpis_cliente_layout = dbc.Container([
         dbc.Col(dbc.Button("Download CSV da Tabela", id="btn-csv-kpis-cliente", color="secondary"), width="auto")
     ], className="mb-3"),
     dbc.Row([
-        dbc.Col(dcc.Loading(dcc.Graph(id="grafico-scatter-kpis-cliente")), width=12)
+        dbc.Col(dcc.Loading(html.Div(id="tabela-kpis-cliente-container")), width=12)
     ], className="mb-4"),
     dbc.Row([
-        dbc.Col(dcc.Loading(html.Div(id="tabela-kpis-cliente-container")), width=12)
+        dbc.Col(html.H4("Gráfico: Valor Faturado x Dias sem Compra"), width=12)
     ]),
+    dbc.Row([
+        dbc.Col(dcc.Loading(dcc.Graph(id="grafico-scatter-kpis-cliente")), width=12)
+    ], className="mb-4"),
     html.Hr(),
     dbc.Row([
         dbc.Col(html.H4("Evolução Histórica Anual (Clientes Filtrados)"), width=12)
@@ -172,9 +175,9 @@ kpis_propostas_layout = dbc.Container([
                     html.Label("Filtrar por Mês de Proposta (intervalo)", style={"marginTop": "1em"}),
                     dcc.RangeSlider(id='filtro-mes-propostas', min=1, max=12, step=1, value=[1,12], marks={str(m): str(m) for m in range(1, 13)}, tooltip={"placement": "bottom", "always_visible": True}),
                     html.Label("Filtrar por Cliente (código ou nome)", style={"marginTop": "1em"}),
-                    dcc.Dropdown(id="filtro-cliente", placeholder="Selecione um ou mais clientes...", multi=True),
+                    dcc.Dropdown(id="filtro-cliente-propostas", placeholder="Selecione um ou mais clientes...", multi=True),
                     html.Label("Filtrar Top N Clientes (por valor total comprado)", style={"marginTop": "1em"}),
-                    dbc.Input(id="filtro-top-n-clientes", type="number", min=1, max=100, step=1, value=20, placeholder="Top N Clientes")
+                    dbc.Input(id="filtro-top-n-clientes-propostas", type="number", min=1, max=100, step=1, value=20, placeholder="Top N Clientes")
                 ])
             ], width=12)
         ], className="mb-4"),
