@@ -12,6 +12,7 @@ from .db import (
     get_setting, 
     save_setting, 
     verify_user,
+    get_latest_dataset,
     SENTINEL_ALL,
     _norm_year
 )
@@ -40,6 +41,7 @@ __all__ = [
     'get_setting',
     'save_setting',
     'verify_user',
+    'get_latest_dataset',
     'SENTINEL_ALL',
     '_norm_year',
     'DataLoader',

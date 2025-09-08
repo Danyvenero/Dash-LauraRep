@@ -9,7 +9,7 @@ import io
 import pandas as pd
 from webapp import app
 from webapp.auth import authenticated_callback
-from utils import DataLoader, save_dataset, SecurityManager, get_current_user_id
+from utils import DataLoader, save_dataset, SecurityManager, get_current_user_id, get_latest_dataset
 
 # Instâncias
 data_loader = DataLoader()
@@ -40,7 +40,6 @@ def handle_file_uploads(vendas_content, cotacoes_content, materiais_content, loa
     # Se foi clique no botão de carregar dados salvos
     if trigger_id == 'btn-load-saved-data':
         try:
-            from utils import get_latest_dataset
             latest = get_latest_dataset()
             if latest:
                 return dbc.Alert(

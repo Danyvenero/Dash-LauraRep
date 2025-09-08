@@ -50,6 +50,9 @@ class DataLoader:
             'código cliente': 'cod_cliente',
             'codigo_cliente': 'cod_cliente',
             'cod cliente': 'cod_cliente',
+            'doc. vendas': 'cod_cliente',  # Adicionado mapeamento para Doc. Vendas
+            'doc vendas': 'cod_cliente',
+            'documento vendas': 'cod_cliente',
             'cliente': 'cliente',
             'material': 'material',
             'produto': 'produto',
@@ -118,6 +121,18 @@ class DataLoader:
         for col in required_cols:
             if col in df_norm.columns:
                 df_norm = df_norm.dropna(subset=[col])
+        
+        # Mantém apenas colunas válidas do schema
+        valid_columns = [
+            'cod_cliente', 'cliente', 'material', 'produto', 'unidade_negocio',
+            'canal_distribuicao', 'hier_produto_1', 'hier_produto_2', 'hier_produto_3',
+            'data', 'data_faturamento', 'qtd_entrada', 'vlr_entrada', 'qtd_carteira',
+            'vlr_carteira', 'qtd_rol', 'vlr_rol'
+        ]
+        
+        # Filtra apenas colunas que existem tanto no DataFrame quanto no schema
+        columns_to_keep = [col for col in valid_columns if col in df_norm.columns]
+        df_norm = df_norm[columns_to_keep]
         
         return df_norm
     
