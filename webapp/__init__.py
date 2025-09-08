@@ -1,31 +1,48 @@
-# webapp/__init__.py
+"""
+Módulo webapp - Interface web do Dashboard WEG
+"""
 
 import dash
+from dash import html, dcc
 import dash_bootstrap_components as dbc
 from flask import Flask
-from utils.db import init_app as init_db_app
+from utils import init_db
 
-server = Flask(__name__, instance_relative_config=True)
+# Configuração do servidor Flask
+server = Flask(__name__)
+server.secret_key = 'weg-dashboard-secret-key-2025-laura-rep'
 
+# Configuração de sessão
 server.config.update(
-    SECRET_KEY='uma-chave-secreta-muito-forte-deve-ser-usada-aqui',
-    DATABASE='instance/database.sqlite'
+    SESSION_COOKIE_SECURE=False,  # True em produção com HTTPS
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    PERMANENT_SESSION_LIFETIME=3600  # 1 hora
 )
 
-init_db_app(server)
-
+# Inicialização da aplicação Dash
 app = dash.Dash(
     __name__,
     server=server,
     external_stylesheets=[dbc.themes.BOOTSTRAP],
     suppress_callback_exceptions=True,
-    url_base_pathname='/'
+    assets_folder='../assets',
+    title="Dashboard WEG - Laura Representações",
+    meta_tags=[
+        {"name": "viewport", "content": "width=device-width, initial-scale=1"}
+    ]
 )
 
-from .layouts import main_layout
-app.layout = main_layout
+# Configurações da aplicação
+app.config.suppress_callback_exceptions = True
 
-from . import auth
-from . import callbacks_uploads
-from . import callbacks
-from . import callbacks_downloads
+# Inicializa o banco de dados
+init_db()
+
+# Layout principal será definido em layouts.py
+app.layout = html.Div([
+    dcc.Location(id='url', refresh=False),
+    html.Div(id='page-content')
+])
+
+print("✅ Webapp inicializado com sucesso")

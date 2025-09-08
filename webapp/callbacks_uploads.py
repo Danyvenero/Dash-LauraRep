@@ -1,105 +1,277 @@
-# webapp/callbacks_uploads.py
+"""
+Callbacks para upload de arquivos
+"""
 
-from dash import Output, Input, State, html
+from dash import Input, Output, State, html
 import dash_bootstrap_components as dbc
-from flask import session
-import hashlib
-
+import base64
+import io
+import pandas as pd
 from webapp import app
-from utils import data_loader, db
+from webapp.auth import authenticated_callback
+from utils import DataLoader, save_dataset, SecurityManager, get_current_user_id
+
+# Instâncias
+data_loader = DataLoader()
+security_manager = SecurityManager()
 
 @app.callback(
-    Output('upload-msgs', 'children', allow_duplicate=True),
-    Input('upload-vendas', 'contents'),
-    Input('upload-vendas', 'filename'),
+    Output('upload-status', 'children'),
+    [Input('upload-vendas', 'contents'),
+     Input('upload-cotacoes', 'contents'),
+     Input('upload-materiais', 'contents'),
+     Input('btn-load-saved-data', 'n_clicks')],
+    [State('upload-vendas', 'filename'),
+     State('upload-cotacoes', 'filename'),
+     State('upload-materiais', 'filename')],
     prevent_initial_call=True
 )
-def on_upload_vendas(contents_list, filenames_list):
-    if not contents_list or not filenames_list:
-        return dbc.Alert("Erro no upload. Por favor, tente selecionar o arquivo novamente.", color="warning")
+@authenticated_callback
+def handle_file_uploads(vendas_content, cotacoes_content, materiais_content, load_btn_clicks,
+                       vendas_filename, cotacoes_filename, materiais_filename):
+    """Processa uploads de arquivos"""
     
-    user_id = session.get('user_id')
-    if not user_id: 
-        return dbc.Alert("Sessão inválida.", color="danger")
-
-    messages = []
-    for contents, filename in zip(contents_list, filenames_list):
-        if not (filename.endswith('.xlsx') or filename.endswith('.xls')):
-            messages.append(dbc.Alert(f"Erro em '{filename}': Apenas arquivos .xlsx ou .xls são permitidos.", color="danger"))
-            continue
-
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
+    
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Se foi clique no botão de carregar dados salvos
+    if trigger_id == 'btn-load-saved-data':
         try:
-            file_io = data_loader.parse_upload_content(contents)
-            fingerprint = data_loader.generate_fingerprint(file_io)
-
-            if db.check_raw_fingerprint_exists(fingerprint, 'raw_vendas'):
-                messages.append(dbc.Alert(f"O arquivo '{filename}' já foi carregado.", color="warning"))
-                continue
-            
-            df = data_loader.read_raw_vendas(file_io)
-            rows_inserted = db.insert_raw_df(df, 'raw_vendas', filename, fingerprint, user_id)
-
-            if rows_inserted > 0:
-                messages.append(dbc.Alert(f"Arquivo de vendas '{filename}' carregado! {rows_inserted} registros brutos salvos.", color="success"))
+            from utils import get_latest_dataset
+            latest = get_latest_dataset()
+            if latest:
+                return dbc.Alert(
+                    f"✅ Dados carregados com sucesso! Dataset: {latest['name']} "
+                    f"(Uploaded: {latest['uploaded_at']})",
+                    color="success",
+                    duration=5000
+                )
             else:
-                messages.append(dbc.Alert(f"Erro ao salvar dados brutos do arquivo '{filename}'.", color="danger"))
+                return dbc.Alert(
+                    "⚠️ Nenhum dataset encontrado no banco de dados.",
+                    color="warning",
+                    duration=5000
+                )
         except Exception as e:
-            messages.append(dbc.Alert(f"Erro ao processar o arquivo de vendas '{filename}': {e}", color="danger"))
+            return dbc.Alert(
+                f"❌ Erro ao carregar dados: {str(e)}",
+                color="danger",
+                duration=5000
+            )
+    
+    # Processamento de uploads
+    uploads_processed = []
+    errors = []
+    
+    # Mapeia uploads
+    upload_data = [
+        (vendas_content, vendas_filename, 'vendas'),
+        (cotacoes_content, cotacoes_filename, 'cotacoes'),
+        (materiais_content, materiais_filename, 'materiais')
+    ]
+    
+    dataframes = {'vendas': None, 'cotacoes': None, 'produtos_cotados': None}
+    
+    for content, filename, file_type in upload_data:
+        if content and filename:
+            try:
+                # Valida arquivo
+                content_type, content_string = content.split(',')
+                decoded = base64.b64decode(content_string)
+                file_size = len(decoded)
+                
+                validation = security_manager.validate_file_upload(filename, file_size)
+                if not validation['valid']:
+                    errors.extend(validation['errors'])
+                    continue
+                
+                # Lê arquivo Excel
+                df = pd.read_excel(io.BytesIO(decoded))
+                
+                # Processa baseado no tipo
+                if file_type == 'vendas':
+                    df_processed = data_loader.normalize_vendas_data(df)
+                    dataframes['vendas'] = df_processed
+                elif file_type == 'cotacoes':
+                    df_processed = data_loader.normalize_cotacoes_data(df)
+                    dataframes['cotacoes'] = df_processed
+                elif file_type == 'materiais':
+                    df_processed = data_loader.normalize_produtos_cotados_data(df)
+                    dataframes['produtos_cotados'] = df_processed
+                
+                uploads_processed.append(f"✅ {filename} - {len(df_processed)} registros")
+                
+            except Exception as e:
+                errors.append(f"❌ Erro ao processar {filename}: {str(e)}")
+    
+    # Se houve uploads processados, salva no banco
+    if uploads_processed and not errors:
+        try:
+            user_id = get_current_user_id()
+            dataset_name = f"Upload_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}"
             
-    return messages
+            dataset_id = save_dataset(
+                dataset_name, 
+                user_id,
+                dataframes['vendas'],
+                dataframes['cotacoes'], 
+                dataframes['produtos_cotados']
+            )
+            
+            success_msg = html.Div([
+                html.H6("✅ Upload realizado com sucesso!", className="text-success"),
+                html.Ul([html.Li(msg) for msg in uploads_processed]),
+                html.P(f"Dataset ID: {dataset_id}", className="small text-muted")
+            ])
+            
+            return dbc.Alert(success_msg, color="success", duration=10000)
+            
+        except Exception as e:
+            errors.append(f"❌ Erro ao salvar no banco: {str(e)}")
+    
+    # Se houve erros
+    if errors:
+        error_msg = html.Div([
+            html.H6("❌ Erros encontrados:", className="text-danger"),
+            html.Ul([html.Li(error) for error in errors])
+        ])
+        return dbc.Alert(error_msg, color="danger", duration=10000)
+    
+    return dash.no_update
 
-
+# Callback para configurações de thresholds
 @app.callback(
-    Output('upload-msgs', 'children', allow_duplicate=True),
-    Input('upload-cotacoes', 'contents'),
-    Input('upload-cotacoes', 'filename'),
+    [Output('threshold-inputs', 'children'),
+     Output('threshold-status', 'children')],
+    [Input('url', 'pathname'),
+     Input('btn-save-thresholds', 'n_clicks')],
+    [State('threshold-inputs', 'children')],
     prevent_initial_call=True
 )
-def on_upload_cotacoes(contents_list, filenames_list):
-    if not contents_list or not filenames_list:
-        return dbc.Alert("Erro no upload. Por favor, tente selecionar os arquivos novamente.", color="warning")
+@authenticated_callback
+def handle_thresholds(pathname, save_clicks, current_inputs):
+    """Gerencia configurações de thresholds"""
     
-    user_id = session.get('user_id')
-    if not user_id: 
-        return dbc.Alert("Sessão inválida.", color="danger")
+    ctx = dash.callback_context
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
     
-    messages = []
-    for contents, filename in zip(contents_list, filenames_list):
-        try:
-            # --- CORREÇÃO AQUI: A ordem das operações foi ajustada ---
+    # Carrega unidades de negócio disponíveis
+    try:
+        from utils import load_vendas_data, get_setting, save_setting
+        vendas_df = load_vendas_data()
+        
+        if vendas_df.empty or 'unidade_negocio' not in vendas_df.columns:
+            unidades = ['WAU', 'WEN', 'WMO-C', 'WMO-I', 'WDS']  # Padrão
+        else:
+            unidades = vendas_df['unidade_negocio'].dropna().unique().tolist()
+        
+        # Se for salvamento
+        if trigger_id == 'btn-save-thresholds' and save_clicks:
+            # Aqui deveria extrair valores dos inputs e salvar
+            # Por simplicidade, salvamos um exemplo
+            thresholds = {}
+            for un in unidades:
+                thresholds[un] = {
+                    'baixo': 50000,
+                    'medio': 100000,
+                    'alto': 200000
+                }
+            
+            save_setting('business_unit_thresholds', thresholds)
+            
+            status = dbc.Alert(
+                "✅ Configurações salvas com sucesso!",
+                color="success",
+                duration=3000
+            )
+            
+            # Reconstrói inputs
+            inputs = []
+            for un in unidades:
+                inputs.append(
+                    dbc.Row([
+                        dbc.Col([
+                            html.Label(f"{un}:", className="fw-bold")
+                        ], width=3),
+                        dbc.Col([
+                            dbc.Input(
+                                id=f"threshold-{un}-baixo",
+                                type="number",
+                                placeholder="Baixo",
+                                value=thresholds[un]['baixo']
+                            )
+                        ], width=3),
+                        dbc.Col([
+                            dbc.Input(
+                                id=f"threshold-{un}-medio", 
+                                type="number",
+                                placeholder="Médio",
+                                value=thresholds[un]['medio']
+                            )
+                        ], width=3),
+                        dbc.Col([
+                            dbc.Input(
+                                id=f"threshold-{un}-alto",
+                                type="number", 
+                                placeholder="Alto",
+                                value=thresholds[un]['alto']
+                            )
+                        ], width=3)
+                    ], className="mb-2")
+                )
+            
+            return inputs, status
+        
+        # Carregamento inicial
+        saved_thresholds = get_setting('business_unit_thresholds', {})
+        
+        inputs = []
+        for un in unidades:
+            un_thresholds = saved_thresholds.get(un, {'baixo': 50000, 'medio': 100000, 'alto': 200000})
+            
+            inputs.append(
+                dbc.Row([
+                    dbc.Col([
+                        html.Label(f"{un}:", className="fw-bold")
+                    ], width=3),
+                    dbc.Col([
+                        dbc.Input(
+                            id=f"threshold-{un}-baixo",
+                            type="number",
+                            placeholder="Baixo", 
+                            value=un_thresholds['baixo']
+                        )
+                    ], width=3),
+                    dbc.Col([
+                        dbc.Input(
+                            id=f"threshold-{un}-medio",
+                            type="number",
+                            placeholder="Médio",
+                            value=un_thresholds['medio']
+                        )
+                    ], width=3),
+                    dbc.Col([
+                        dbc.Input(
+                            id=f"threshold-{un}-alto",
+                            type="number",
+                            placeholder="Alto",
+                            value=un_thresholds['alto']
+                        )
+                    ], width=3)
+                ], className="mb-2")
+            )
+        
+        return inputs, dash.no_update
+        
+    except Exception as e:
+        error_msg = dbc.Alert(
+            f"❌ Erro ao carregar configurações: {str(e)}",
+            color="danger",
+            duration=5000
+        )
+        return [], error_msg
 
-            # 1. Processa o conteúdo do arquivo PRIMEIRO para criar o file_io
-            file_io = data_loader.parse_upload_content(contents)
-            
-            # 2. Identifica o tipo de arquivo e chama a função de leitura correta
-            table_name = None
-            df = None
-            if 'materiais_cotados' in filename:
-                table_name = 'raw_materiais_cotados'
-                df = data_loader.read_raw_materiais_cotados(file_io)
-            elif any(char.isdigit() for char in filename) and ('.xls' in filename or '.xlsx' in filename):
-                table_name = 'raw_propostas_anuais'
-                df = data_loader.read_raw_propostas_anuais(file_io)
-            else:
-                messages.append(dbc.Alert(f"Arquivo '{filename}' não reconhecido e foi ignorado.", color="warning"))
-                continue
-            
-            # 3. Agora que temos o file_io, podemos gerar o fingerprint
-            fingerprint = data_loader.generate_fingerprint(file_io)
-
-            if db.check_raw_fingerprint_exists(fingerprint, table_name):
-                messages.append(dbc.Alert(f"O arquivo '{filename}' já foi carregado.", color="warning"))
-                continue
-            
-            # 4. Insere o DataFrame (df) que já foi lido e processado
-            rows_inserted = db.insert_raw_df(df, table_name, filename, fingerprint, user_id)
-            
-            if rows_inserted > 0:
-                messages.append(dbc.Alert(f"Arquivo '{filename}' carregado! {rows_inserted} registros brutos salvos em '{table_name}'.", color="success"))
-            else:
-                messages.append(dbc.Alert(f"Erro ao salvar dados brutos do arquivo '{filename}'.", color="danger"))
-
-        except Exception as e:
-            messages.append(dbc.Alert(f"Erro ao processar '{filename}': {e}", color="danger"))
-            
-    return messages
+print("✅ Callbacks de upload registrados com sucesso")

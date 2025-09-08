@@ -1,23 +1,246 @@
-/* assets/style.css */
+/* Estilos para Dashboard WEG - Laura Representações */
+
+:root {
+    --weg-blue: #003366;
+    --weg-light-blue: #0066cc;
+    --weg-gray: #f8f9fa;
+    --weg-dark-gray: #6c757d;
+    --success-green: #28a745;
+    --warning-yellow: #ffc107;
+    --danger-red: #dc3545;
+}
 
 body {
-    font-family: 'Roboto', sans-serif;
-    background-color: #F5F5F5;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--weg-gray);
+    margin: 0;
+    padding: 0;
 }
 
-#sidebar {
+/* Layout principal */
+.main-container {
+    display: flex;
+    min-height: 100vh;
+}
+
+/* Sidebar */
+.sidebar {
+    width: 250px;
+    background-color: var(--weg-blue);
+    color: white;
+    padding: 20px 0;
     position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    width: 20rem; /* Largura da sidebar */
-    padding: 2rem 1rem;
-    background-color: #f8f9fa; /* Um cinza claro */
-    box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-    overflow-y: auto; /* Adiciona scroll se o conteúdo for grande */
+    height: 100vh;
+    overflow-y: auto;
 }
 
-.content {
-    margin-left: 21rem; /* Deve ser um pouco maior que a largura da sidebar */
-    padding: 2rem 1rem;
+.sidebar-header {
+    text-align: center;
+    padding: 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-menu {
+    list-style: none;
+    padding: 0;
+    margin: 20px 0;
+}
+
+.sidebar-menu-item {
+    padding: 15px 25px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    border-left: 4px solid transparent;
+}
+
+.sidebar-menu-item:hover {
+    background-color: var(--weg-light-blue);
+    border-left-color: white;
+}
+
+.sidebar-menu-item.active {
+    background-color: var(--weg-light-blue);
+    border-left-color: white;
+}
+
+/* Conteúdo principal */
+.main-content {
+    margin-left: 250px;
+    padding: 20px;
+    width: calc(100% - 250px);
+    min-height: 100vh;
+}
+
+/* Cards de KPI */
+.kpi-card {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 10px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    border-left: 4px solid var(--weg-blue);
+}
+
+.kpi-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--weg-blue);
+}
+
+.kpi-label {
+    font-size: 0.9rem;
+    color: var(--weg-dark-gray);
+    text-transform: uppercase;
+}
+
+.kpi-change {
+    font-size: 0.8rem;
+    margin-top: 5px;
+}
+
+.kpi-change.positive {
+    color: var(--success-green);
+}
+
+.kpi-change.negative {
+    color: var(--danger-red);
+}
+
+/* Filtros */
+.filters-container {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.filter-row {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.filter-item {
+    flex: 1;
+    min-width: 200px;
+}
+
+/* Botões */
+.btn-weg {
+    background-color: var(--weg-blue);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.btn-weg:hover {
+    background-color: var(--weg-light-blue);
+}
+
+.btn-secondary {
+    background-color: var(--weg-dark-gray);
+    color: white;
+}
+
+/* Tabelas */
+.dash-table-container {
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Gráficos */
+.graph-container {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Login */
+.login-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background-color: var(--weg-blue);
+}
+
+.login-card {
+    background: white;
+    border-radius: 12px;
+    padding: 40px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+    width: 100%;
+    max-width: 400px;
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.login-logo {
+    width: 120px;
+    height: auto;
+    margin-bottom: 20px;
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 100%;
+        height: auto;
+        position: relative;
+    }
+    
+    .main-content {
+        margin-left: 0;
+        width: 100%;
+    }
+    
+    .filter-row {
+        flex-direction: column;
+    }
+    
+    .filter-item {
+        width: 100%;
+    }
+}
+
+/* Animações */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+    animation: fadeIn 0.5s ease-out;
+}
+
+/* Status indicators */
+.status-indicator {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 8px;
+}
+
+.status-active {
+    background-color: var(--success-green);
+}
+
+.status-warning {
+    background-color: var(--warning-yellow);
+}
+
+.status-inactive {
+    background-color: var(--danger-red);
 }

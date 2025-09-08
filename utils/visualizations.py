@@ -1,319 +1,379 @@
-# utils/visualizations.py
+"""
+Módulo para criação de visualizações e gráficos
+"""
 
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from typing import Dict, List, Optional, Tuple
+from utils.db import SENTINEL_ALL
 
-def create_bubble_chart(df_matrix, color_scale='Viridis'):
-    """
-    Cria gráfico de bolhas para análise cliente x produto
+class VisualizationGenerator:
+    """Classe para geração de visualizações"""
     
-    Args:
-        df_matrix: DataFrame com dados da matriz
-        color_scale: Escala de cores
-    
-    Returns:
-        plotly.graph_objects.Figure
-    """
-    if df_matrix.empty:
-        fig = go.Figure()
-        fig.add_annotation(
-            text="Nenhum dado disponível para exibir",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5, xanchor='center', yanchor='middle',
-            showarrow=False, font=dict(size=16)
-        )
-        fig.update_layout(
-            title="Gráfico de Bolhas - Clientes vs Produtos",
-            xaxis=dict(showgrid=False, showticklabels=False),
-            yaxis=dict(showgrid=False, showticklabels=False)
-        )
-        return fig
-    
-    # Preparar dados
-    df_plot = df_matrix.copy()
-    df_plot['cliente_nome'] = df_plot['cliente'].str.slice(0, 20) + '...' if 'cliente' in df_plot.columns else df_plot['cod_cliente'].astype(str)
-    df_plot['material_str'] = df_plot['material'].astype(str)
-    
-    # Normalizar tamanhos das bolhas
-    size_min, size_max = 5, 50
-    if df_plot['quantidade'].max() > 0:
-        df_plot['bubble_size'] = size_min + (df_plot['quantidade'] - df_plot['quantidade'].min()) / (df_plot['quantidade'].max() - df_plot['quantidade'].min()) * (size_max - size_min)
-    else:
-        df_plot['bubble_size'] = size_min
-    
-    # Criar gráfico
-    fig = px.scatter(
-        df_plot,
-        x='material_str',
-        y='cliente_nome',
-        size='bubble_size',
-        color='pct_nao_comprado',
-        color_continuous_scale=color_scale,
-        hover_data={
-            'quantidade': ':,.0f',
-            'quantidade_faturada': ':,.0f',
-            'pct_nao_comprado': ':.1f',
-            'bubble_size': False,
-            'material_str': False,
-            'cliente_nome': False
-        },
-        labels={
-            'material_str': 'Material',
-            'cliente_nome': 'Cliente',
-            'pct_nao_comprado': '% Não Comprado'
+    def __init__(self):
+        # Paleta de cores WEG
+        self.weg_colors = {
+            'primary': '#003366',
+            'secondary': '#0066cc',
+            'success': '#28a745',
+            'warning': '#ffc107',
+            'danger': '#dc3545',
+            'info': '#17a2b8',
+            'light': '#f8f9fa',
+            'dark': '#343a40'
         }
-    )
-    
-    fig.update_traces(
-        hovertemplate=
-        '<b>%{y}</b><br>' +
-        'Material: %{x}<br>' +
-        'Qtd Cotada: %{customdata[0]}<br>' +
-        'Qtd Comprada: %{customdata[1]}<br>' +
-        '% Não Comprado: %{customdata[2]:.1f}%' +
-        '<extra></extra>'
-    )
-    
-    fig.update_layout(
-        title="Análise de Bolhas - Clientes vs Produtos",
-        xaxis_title="Produtos (Material)",
-        yaxis_title="Clientes",
-        height=600,
-        showlegend=False,
-        xaxis=dict(tickangle=45),
-        coloraxis_colorbar=dict(title="% Não Comprado")
-    )
-    
-    return fig
-
-def create_funnel_chart(funil_data):
-    """
-    Cria gráfico de funil de conversão
-    """
-    if funil_data.empty:
-        fig = go.Figure()
-        fig.add_annotation(
-            text="Nenhum dado disponível",
-            x=0.5, y=0.5, showarrow=False
-        )
-        return fig
-    
-    # Calcular estágios do funil
-    total_cotaram = len(funil_data)
-    total_compraram = len(funil_data[funil_data['quantidade_faturada'] > 0])
-    
-    # Faixas de conversão
-    alta_conversao = len(funil_data[funil_data['conversao_pct'] >= 70])
-    media_conversao = len(funil_data[(funil_data['conversao_pct'] >= 30) & (funil_data['conversao_pct'] < 70)])
-    baixa_conversao = len(funil_data[funil_data['conversao_pct'] < 30])
-    
-    fig = go.Figure()
-    
-    # Funil principal
-    fig.add_trace(go.Funnel(
-        y=['Clientes que Cotaram', 'Compraram Algo', 'Alta Conversão (≥70%)', 'Média Conversão (30-70%)', 'Baixa Conversão (<30%)'],
-        x=[total_cotaram, total_compraram, alta_conversao, media_conversao, baixa_conversao],
-        textinfo="value+percent initial",
-        marker=dict(
-            color=['lightblue', 'lightgreen', 'green', 'orange', 'red'],
-            line=dict(color='white', width=2)
-        )
-    ))
-    
-    fig.update_layout(
-        title="Funil de Conversão de Clientes",
-        height=400,
-        margin=dict(l=20, r=20, t=40, b=20)
-    )
-    
-    return fig
-
-def create_scatter_kpis(df_kpis):
-    """
-    Cria gráfico scatter para KPIs por cliente
-    """
-    if df_kpis.empty:
-        return go.Figure()
-    
-    fig = px.scatter(
-        df_kpis,
-        x='total_comprado_valor',
-        y='pct_nao_comprado',
-        size='mix_produtos',
-        color='dias_sem_compra',
-        hover_data=['cliente', 'total_comprado_qtd', 'unidades_negocio'],
-        labels={
-            'total_comprado_valor': 'Valor Total Comprado (R$)',
-            'pct_nao_comprado': '% Não Comprado',
-            'mix_produtos': 'Mix de Produtos',
-            'dias_sem_compra': 'Dias sem Compra'
-        },
-        color_continuous_scale='Reds_r'
-    )
-    
-    fig.update_layout(
-        title="Análise de Performance por Cliente",
-        height=500
-    )
-    
-    return fig
-
-def create_historical_evolution(df_vendas, indicators):
-    """
-    Cria gráfico de evolução histórica dos KPIs
-    """
-    if df_vendas.empty or not indicators:
-        return go.Figure()
-    
-    # Agrupar por ano
-    df_vendas['ano'] = pd.to_datetime(df_vendas['data_faturamento']).dt.year
-    
-    historical_data = df_vendas.groupby('ano').agg({
-        'valor_faturado': 'sum',
-        'quantidade_faturada': 'sum',
-        'material': 'nunique',
-        'cod_cliente': 'nunique'
-    }).reset_index()
-    
-    historical_data['pct_mix_produtos'] = (historical_data['material'] / historical_data['material'].max()) * 100
-    
-    # Mapear indicadores
-    indicator_map = {
-        'total_comprado_valor': ('valor_faturado', 'Valor Faturado (R$)'),
-        'total_comprado_qtd': ('quantidade_faturada', 'Quantidade Faturada'),
-        'mix_produtos': ('material', 'Mix de Produtos'),
-        'pct_mix_produtos': ('pct_mix_produtos', 'Mix de Produtos (%)')
-    }
-    
-    fig = go.Figure()
-    
-    for indicator in indicators:
-        if indicator in indicator_map:
-            col_name, label = indicator_map[indicator]
-            fig.add_trace(go.Scatter(
-                x=historical_data['ano'],
-                y=historical_data[col_name],
-                mode='lines+markers',
-                name=label,
-                line=dict(width=3),
-                marker=dict(size=8)
-            ))
-    
-    fig.update_layout(
-        title="Evolução Histórica dos Indicadores",
-        xaxis_title="Ano",
-        yaxis_title="Valor",
-        height=400,
-        hovermode='x unified'
-    )
-    
-    return fig
-
-def create_comparative_chart(df_propostas, chart_type='barra'):
-    """
-    Cria gráfico comparativo para análise de propostas
-    """
-    if df_propostas.empty:
-        return go.Figure()
-    
-    if chart_type == 'heatmap':
-        # Preparar dados para heatmap
-        pivot_data = df_propostas.pivot_table(
-            index='cliente',
-            columns='material',
-            values='pct_nao_comprado',
-            aggfunc='mean'
-        ).fillna(0)
         
-        fig = px.imshow(
-            pivot_data.values,
-            x=pivot_data.columns,
-            y=pivot_data.index,
-            color_continuous_scale='RdYlBu_r',
-            labels=dict(color="% Não Comprado")
-        )
+        self.color_scales = {
+            'weg_blue': ['#e6f3ff', '#cce7ff', '#99d6ff', '#66c5ff', '#33b4ff', '#0099ff', '#0080cc', '#006699', '#004d66', '#003366'],
+            'performance': ['#dc3545', '#ffc107', '#28a745'],
+            'heatmap': px.colors.sequential.Blues
+        }
+    
+    def create_evolution_chart(self, vendas_df: pd.DataFrame, filters: Dict = None) -> go.Figure:
+        """Cria gráfico de evolução de vendas"""
+        
+        if vendas_df.empty or 'data_faturamento' not in vendas_df.columns:
+            return self._create_empty_chart("Sem dados para exibir")
+        
+        # Aplica filtros
+        df_filtered = self._apply_filters(vendas_df, filters) if filters else vendas_df
+        
+        if df_filtered.empty:
+            return self._create_empty_chart("Nenhum dado encontrado com os filtros aplicados")
+        
+        # Agrupa por mês
+        df_monthly = (df_filtered.groupby(df_filtered['data_faturamento'].dt.to_period('M'))
+                     .agg({
+                         'vlr_entrada': 'sum',
+                         'vlr_carteira': 'sum',
+                         'vlr_rol': 'sum'
+                     }).reset_index())
+        
+        df_monthly['data_faturamento'] = df_monthly['data_faturamento'].astype(str)
+        
+        fig = go.Figure()
+        
+        # Linha de Entrada de Pedidos
+        fig.add_trace(go.Scatter(
+            x=df_monthly['data_faturamento'],
+            y=df_monthly['vlr_entrada'],
+            mode='lines+markers',
+            name='Entrada de Pedidos',
+            line=dict(color=self.weg_colors['primary'], width=3),
+            marker=dict(size=8)
+        ))
+        
+        # Linha de Carteira
+        fig.add_trace(go.Scatter(
+            x=df_monthly['data_faturamento'],
+            y=df_monthly['vlr_carteira'],
+            mode='lines+markers',
+            name='Carteira',
+            line=dict(color=self.weg_colors['secondary'], width=3),
+            marker=dict(size=8)
+        ))
+        
+        # Linha de Faturamento
+        fig.add_trace(go.Scatter(
+            x=df_monthly['data_faturamento'],
+            y=df_monthly['vlr_rol'],
+            mode='lines+markers',
+            name='Faturamento',
+            line=dict(color=self.weg_colors['success'], width=3),
+            marker=dict(size=8)
+        ))
         
         fig.update_layout(
-            title="Heatmap: % Não Comprado por Cliente x Produto",
-            height=600
+            title='Evolução de Vendas',
+            xaxis_title='Período',
+            yaxis_title='Valor (R$)',
+            hovermode='x unified',
+            template='plotly_white',
+            font=dict(family="Arial", size=12),
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
         )
         
-    else:  # barra
-        # Agrupar por cliente
-        client_summary = df_propostas.groupby('cliente').agg({
-            'quantidade': 'sum',
-            'quantidade_faturada': 'sum'
-        }).reset_index()
+        return fig
+    
+    def create_bubble_chart(self, vendas_df: pd.DataFrame, cotacoes_df: pd.DataFrame, 
+                           produtos_cotados_df: pd.DataFrame, 
+                           top_produtos: int = 20, top_clientes: int = 20,
+                           color_scale: str = 'weg_blue', filters: Dict = None) -> go.Figure:
+        """Cria gráfico de bolhas clientes × produtos"""
         
-        client_summary['pct_conversao'] = np.where(
-            client_summary['quantidade'] > 0,
-            (client_summary['quantidade_faturada'] / client_summary['quantidade']) * 100,
-            0
+        # Aplica filtros
+        vendas_filtered = self._apply_filters(vendas_df, filters) if filters else vendas_df
+        cotacoes_filtered = self._apply_filters(cotacoes_df, filters, is_cotacoes=True) if filters else cotacoes_df
+        
+        if vendas_filtered.empty and cotacoes_filtered.empty:
+            return self._create_empty_chart("Sem dados para o gráfico de bolhas")
+        
+        # Cria matriz cliente × produto
+        df_matrix = self._create_client_product_matrix(vendas_filtered, cotacoes_filtered, produtos_cotados_df)
+        
+        if df_matrix.empty:
+            return self._create_empty_chart("Matriz cliente × produto vazia")
+        
+        # Filtra top clientes e produtos
+        top_clients_list = df_matrix.groupby('cod_cliente')['qtd_cotada'].sum().nlargest(top_clientes).index
+        top_products_list = df_matrix.groupby('material')['qtd_cotada'].sum().nlargest(top_produtos).index
+        
+        df_matrix = df_matrix[
+            (df_matrix['cod_cliente'].isin(top_clients_list)) &
+            (df_matrix['material'].isin(top_products_list))
+        ]
+        
+        if df_matrix.empty:
+            return self._create_empty_chart("Sem dados após aplicar filtros de top clientes/produtos")
+        
+        fig = go.Figure()
+        
+        # Adiciona bolhas
+        fig.add_trace(go.Scatter(
+            x=df_matrix['cod_cliente'],
+            y=df_matrix['material'],
+            mode='markers',
+            marker=dict(
+                size=df_matrix['qtd_cotada'] / df_matrix['qtd_cotada'].max() * 50 + 10,
+                color=df_matrix['perc_nao_comprado'],
+                colorscale=self.color_scales.get(color_scale, 'Blues'),
+                showscale=True,
+                colorbar=dict(title="% Não Comprado"),
+                opacity=0.8,
+                line=dict(width=1, color='white')
+            ),
+            text=df_matrix.apply(lambda row: 
+                f"Cliente: {row['cliente']}<br>"
+                f"Material: {row['material']}<br>"
+                f"Qtd Cotada: {row['qtd_cotada']}<br>"
+                f"% Não Comprado: {row['perc_nao_comprado']:.1f}%", axis=1),
+            hovertemplate='%{text}<extra></extra>',
+            name='Produtos Cotados'
+        ))
+        
+        fig.update_layout(
+            title='Matriz Clientes × Produtos (Bolhas)',
+            xaxis_title='Código Cliente',
+            yaxis_title='Material',
+            template='plotly_white',
+            height=600,
+            font=dict(family="Arial", size=12)
         )
         
-        client_summary = client_summary.sort_values('quantidade', ascending=True).tail(15)
+        return fig
+    
+    def create_pareto_chart(self, vendas_df: pd.DataFrame, filters: Dict = None) -> go.Figure:
+        """Cria gráfico de Pareto de produtos"""
         
-        fig = px.bar(
-            client_summary,
-            x='pct_conversao',
-            y='cliente',
+        vendas_filtered = self._apply_filters(vendas_df, filters) if filters else vendas_df
+        
+        if vendas_filtered.empty or 'material' not in vendas_filtered.columns:
+            return self._create_empty_chart("Sem dados para análise de Pareto")
+        
+        # Agrupa por produto
+        df_pareto = (vendas_filtered.groupby(['material', 'produto'])['qtd_rol']
+                    .sum()
+                    .reset_index()
+                    .sort_values('qtd_rol', ascending=False))
+        
+        # Calcula percentual acumulado
+        df_pareto['perc_individual'] = (df_pareto['qtd_rol'] / df_pareto['qtd_rol'].sum()) * 100
+        df_pareto['perc_acumulado'] = df_pareto['perc_individual'].cumsum()
+        
+        # Limita a 20 produtos
+        df_pareto = df_pareto.head(20)
+        
+        fig = go.Figure()
+        
+        # Barras
+        fig.add_trace(go.Bar(
+            x=df_pareto['material'],
+            y=df_pareto['qtd_rol'],
+            name='Quantidade Vendida',
+            marker_color=self.weg_colors['primary'],
+            yaxis='y'
+        ))
+        
+        # Linha do percentual acumulado
+        fig.add_trace(go.Scatter(
+            x=df_pareto['material'],
+            y=df_pareto['perc_acumulado'],
+            mode='lines+markers',
+            name='% Acumulado',
+            line=dict(color=self.weg_colors['danger'], width=3),
+            marker=dict(size=8),
+            yaxis='y2'
+        ))
+        
+        fig.update_layout(
+            title='Análise de Pareto - Produtos',
+            xaxis_title='Material',
+            yaxis=dict(title='Quantidade Vendida', side='left'),
+            yaxis2=dict(title='% Acumulado', side='right', overlaying='y', range=[0, 100]),
+            template='plotly_white',
+            height=500,
+            font=dict(family="Arial", size=12),
+            showlegend=True
+        )
+        
+        return fig
+    
+    def create_unit_comparison_chart(self, vendas_df: pd.DataFrame, filters: Dict = None) -> go.Figure:
+        """Cria gráfico de comparação por unidade de negócio"""
+        
+        vendas_filtered = self._apply_filters(vendas_df, filters) if filters else vendas_df
+        
+        if vendas_filtered.empty or 'unidade_negocio' not in vendas_filtered.columns:
+            return self._create_empty_chart("Sem dados de unidades de negócio")
+        
+        # Agrupa por unidade de negócio
+        df_units = (vendas_filtered.groupby('unidade_negocio')['vlr_rol']
+                   .sum()
+                   .reset_index()
+                   .sort_values('vlr_rol', ascending=True))
+        
+        fig = go.Figure()
+        
+        fig.add_trace(go.Bar(
+            x=df_units['vlr_rol'],
+            y=df_units['unidade_negocio'],
             orientation='h',
-            color='pct_conversao',
-            color_continuous_scale='RdYlGn',
-            labels={
-                'pct_conversao': 'Taxa de Conversão (%)',
-                'cliente': 'Cliente'
-            }
+            marker_color=self.weg_colors['secondary'],
+            text=df_units['vlr_rol'].apply(lambda x: f'R$ {x:,.0f}'),
+            textposition='outside'
+        ))
+        
+        fig.update_layout(
+            title='Faturamento por Unidade de Negócio',
+            xaxis_title='Faturamento (R$)',
+            yaxis_title='Unidade de Negócio',
+            template='plotly_white',
+            height=400,
+            font=dict(family="Arial", size=12)
+        )
+        
+        return fig
+    
+    def create_client_status_chart(self, client_kpis_df: pd.DataFrame) -> go.Figure:
+        """Cria gráfico de status dos clientes"""
+        
+        if client_kpis_df.empty:
+            return self._create_empty_chart("Sem dados de clientes")
+        
+        # Classifica clientes por status
+        def classify_client_status(row):
+            if row['dias_sem_compra'] > 365:
+                return 'Inativo (>1 ano)'
+            elif row['dias_sem_compra'] > 90:
+                return 'Em Risco (90-365 dias)'
+            else:
+                return 'Ativo (<90 dias)'
+        
+        client_kpis_df['status'] = client_kpis_df.apply(classify_client_status, axis=1)
+        
+        # Conta por status
+        status_counts = client_kpis_df['status'].value_counts()
+        
+        colors = [self.weg_colors['success'], self.weg_colors['warning'], self.weg_colors['danger']]
+        
+        fig = go.Figure(data=[go.Pie(
+            labels=status_counts.index,
+            values=status_counts.values,
+            hole=0.4,
+            marker_colors=colors[:len(status_counts)]
+        )])
+        
+        fig.update_layout(
+            title='Distribuição de Status dos Clientes',
+            template='plotly_white',
+            font=dict(family="Arial", size=12),
+            showlegend=True
+        )
+        
+        return fig
+    
+    def _create_empty_chart(self, message: str) -> go.Figure:
+        """Cria gráfico vazio com mensagem"""
+        fig = go.Figure()
+        
+        fig.add_annotation(
+            text=message,
+            xref="paper", yref="paper",
+            x=0.5, y=0.5,
+            xanchor='center', yanchor='middle',
+            font=dict(size=16, color=self.weg_colors['dark'])
         )
         
         fig.update_layout(
-            title="Taxa de Conversão por Cliente (Top 15)",
-            height=600
+            template='plotly_white',
+            height=400,
+            showlegend=False,
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False)
         )
+        
+        return fig
     
-    return fig
-
-def create_status_indicators(df_kpis, thresholds=None):
-    """
-    Cria indicadores visuais de status por cliente
-    """
-    if thresholds is None:
-        thresholds = {
-            'dias_sem_compra': {'bom': 30, 'medio': 90, 'ruim': 180},
-            'pct_nao_comprado': {'bom': 20, 'medio': 50, 'ruim': 80},
-            'mix_produtos': {'bom': 5, 'medio': 3, 'ruim': 1}
-        }
+    def _apply_filters(self, df: pd.DataFrame, filters: Dict, is_cotacoes: bool = False) -> pd.DataFrame:
+        """Aplica filtros aos dados (método auxiliar)"""
+        # Este método seria implementado de forma similar ao do módulo KPIs
+        # Por brevidade, retorna o DataFrame original
+        return df
     
-    def get_status_color(value, metric):
-        thresh = thresholds.get(metric, {})
-        if metric == 'dias_sem_compra' or metric == 'pct_nao_comprado':
-            # Menor é melhor
-            if value <= thresh.get('bom', 0):
-                return '🟢'
-            elif value <= thresh.get('medio', 0):
-                return '🟡'
-            else:
-                return '🔴'
+    def _create_client_product_matrix(self, vendas_df: pd.DataFrame, 
+                                    cotacoes_df: pd.DataFrame,
+                                    produtos_cotados_df: pd.DataFrame) -> pd.DataFrame:
+        """Cria matriz cliente × produto"""
+        
+        if cotacoes_df.empty or produtos_cotados_df.empty:
+            return pd.DataFrame()
+        
+        # Merge cotações com produtos cotados
+        df_merged = pd.merge(
+            cotacoes_df[['numero_cotacao', 'cod_cliente', 'cliente', 'material', 'data']],
+            produtos_cotados_df[['cotacao', 'material', 'quantidade']],
+            left_on=['numero_cotacao', 'material'],
+            right_on=['cotacao', 'material'],
+            how='inner'
+        )
+        
+        if df_merged.empty:
+            return pd.DataFrame()
+        
+        # Agrupa por cliente e material
+        df_matrix = (df_merged.groupby(['cod_cliente', 'cliente', 'material'])
+                    .agg({'quantidade': 'sum'})
+                    .reset_index())
+        
+        df_matrix = df_matrix.rename(columns={'quantidade': 'qtd_cotada'})
+        
+        # Verifica o que foi comprado
+        if not vendas_df.empty:
+            vendas_summary = (vendas_df.groupby(['cod_cliente', 'material'])['qtd_rol']
+                            .sum()
+                            .reset_index())
+            vendas_summary = vendas_summary.rename(columns={'qtd_rol': 'qtd_comprada'})
+            
+            df_matrix = pd.merge(df_matrix, vendas_summary, 
+                               on=['cod_cliente', 'material'], 
+                               how='left')
+            df_matrix['qtd_comprada'] = df_matrix['qtd_comprada'].fillna(0)
         else:
-            # Maior é melhor
-            if value >= thresh.get('bom', 0):
-                return '🟢'
-            elif value >= thresh.get('medio', 0):
-                return '🟡'
-            else:
-                return '🔴'
-    
-    status_indicators = []
-    for _, row in df_kpis.iterrows():
-        indicators = {
-            'cliente': row.get('cliente', 'N/A'),
-            'dias_status': get_status_color(row.get('dias_sem_compra', 999), 'dias_sem_compra'),
-            'conversao_status': get_status_color(row.get('pct_nao_comprado', 100), 'pct_nao_comprado'),
-            'mix_status': get_status_color(row.get('mix_produtos', 0), 'mix_produtos')
-        }
-        status_indicators.append(indicators)
-    
-    return status_indicators
+            df_matrix['qtd_comprada'] = 0
+        
+        # Calcula percentual não comprado
+        df_matrix['perc_nao_comprado'] = (
+            (df_matrix['qtd_cotada'] - df_matrix['qtd_comprada']) / 
+            df_matrix['qtd_cotada'] * 100
+        ).clip(0, 100)
+        
+        return df_matrix

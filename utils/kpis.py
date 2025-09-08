@@ -1,331 +1,369 @@
+"""
+Módulo para cálculo de KPIs e métricas de negócio
+"""
+
 import pandas as pd
-from datetime import datetime
 import numpy as np
-from utils import db
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
+from utils.db import SENTINEL_ALL, _norm_year
 
-def calculate_kpis_gerais(df_vendas, df_cotacoes):
-    if df_vendas.empty:
-        return {'entrada_pedidos': 'R$ 0,00', 'valor_carteira': 'R$ 0,00', 'faturamento': 'R$ 0,00'}
-    entrada_pedidos = df_vendas['valor_entrada'].sum()
-    valor_carteira = df_vendas['valor_carteira'].sum()
-    df_faturado = df_vendas.dropna(subset=['valor_faturado', 'data_faturamento'])
-    faturamento = df_faturado['valor_faturado'].sum()
-    kpis = {
-        'entrada_pedidos': f"R$ {entrada_pedidos:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        'valor_carteira': f"R$ {valor_carteira:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."),
-        'faturamento': f"R$ {faturamento:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    }
-    return kpis
-
-def _calculate_global_mix(df_vendas):
-    if df_vendas.empty: return 1
-    return df_vendas['material'].nunique()
-
-def calculate_kpis_por_cliente(df_vendas, df_cotacoes):
-    if df_vendas.empty: return pd.DataFrame()
-    df_vendas = df_vendas.copy()
+class KPICalculator:
+    """Classe para cálculo de KPIs"""
     
-    df_vendas.loc[:, 'data_faturamento'] = pd.to_datetime(df_vendas['data_faturamento'], errors='coerce')
+    def __init__(self):
+        self.current_year = datetime.now().year
+        self.current_month = datetime.now().month
     
-    # Manter registros que têm data válida OU que têm valor_faturado válido (mesmo sem data)
-    if 'valor_faturado' in df_vendas.columns:
-        mask_validos = (~df_vendas['data_faturamento'].isnull()) | (~df_vendas['valor_faturado'].isnull() & (df_vendas['valor_faturado'] != 0))
-        df_vendas = df_vendas[mask_validos]
-    else:
-        df_vendas = df_vendas.dropna(subset=['data_faturamento'])
-    
-    if df_vendas.empty:
-        return pd.DataFrame()
-    
-    hoje = datetime.now()
-    total_mix_global = _calculate_global_mix(df_vendas)
-    
-    # Verificar qual coluna usar para valor - PRIORIZAR valor_faturado
-    valor_col = None
-    # Ordem de prioridade: valor_faturado, valor_liquido, valor, ROL
-    for col in ['valor_faturado', 'valor_liquido', 'valor', 'ROL', 'rol', 'total_valor']:
-        if col in df_vendas.columns:
-            valor_col = col
-            break
-    
-    if valor_col is None:
-        return pd.DataFrame()
-    
-    # Verificar qual coluna usar para quantidade  
-    qtd_col = None
-    for col in ['quantidade_faturada', 'quantidade', 'qtd']:
-        if col in df_vendas.columns:
-            qtd_col = col
-            break
-    
-    if qtd_col is None:
-        return pd.DataFrame()
-    
-    kpis_vendas = df_vendas.groupby('cod_cliente').agg(
-        cliente=('cliente', 'first'), 
-        ultima_compra=('data_faturamento', 'max'),
-        total_comprado_valor=(valor_col, 'sum'), 
-        total_comprado_qtd=(qtd_col, 'sum'),
-        mix_produtos=('material', 'nunique'), 
-        unidades_negocio=('unidade_negocio', 'nunique')
-    ).reset_index()
-    
-    kpis_vendas['dias_sem_compra'] = (hoje - kpis_vendas['ultima_compra']).dt.days
-    kpis_cotacoes = df_cotacoes.groupby('cod_cliente').agg(total_cotado_qtd=('quantidade', 'sum')).reset_index()
-    df_kpis = pd.merge(kpis_vendas, kpis_cotacoes, on='cod_cliente', how='left')
-    df_kpis['total_cotado_qtd'] = df_kpis['total_cotado_qtd'].fillna(0)
-    
-    # CORREÇÃO 1: % Mix Produtos - limitando a 100% máximo
-    df_kpis['pct_mix_produtos'] = (df_kpis['mix_produtos'] / total_mix_global) * 100
-    df_kpis['pct_mix_produtos'] = df_kpis['pct_mix_produtos'].clip(upper=100)  # Limitar a 100%
-    
-    # CORREÇÃO 2: % Não Comprado - limitando entre 0% e 100%
-    df_kpis.loc[:, 'pct_nao_comprado'] = 0.0
-    non_zero_mask = df_kpis['total_cotado_qtd'] > 0
-    df_kpis.loc[non_zero_mask, 'pct_nao_comprado'] = ((df_kpis.loc[non_zero_mask, 'total_cotado_qtd'] - df_kpis.loc[non_zero_mask, 'total_comprado_qtd']) / df_kpis.loc[non_zero_mask, 'total_cotado_qtd']) * 100
-    
-    # Limitar % Não Comprado entre 0% e 100% (evitar valores negativos e >100%)
-    df_kpis['pct_nao_comprado'] = df_kpis['pct_nao_comprado'].clip(lower=0, upper=100)
-    
-    # CORREÇÃO 3: Arredondamento para 0 casas decimais conforme solicitado
-    df_kpis['total_comprado_valor'] = df_kpis['total_comprado_valor'].round(2)
-    df_kpis['pct_nao_comprado'] = df_kpis['pct_nao_comprado'].round(0)  # 0 casas decimais
-    df_kpis['pct_mix_produtos'] = df_kpis['pct_mix_produtos'].round(0)  # 0 casas decimais
-    
-    df_kpis.sort_values(by='total_comprado_valor', ascending=False, inplace=True)
-    return df_kpis
-
-# --- FUNÇÕES PARA A PÁGINA DE PROPOSTAS ---
-
-def calculate_funil_metrics(df_vendas, df_cotacoes, periodo_meses=12, threshold_conversao=20, threshold_dias_risco=90):
-    """
-    Calcula métricas do funil de vendas
-    
-    Args:
-        df_vendas: DataFrame de vendas
-        df_cotacoes: DataFrame de cotações
-        periodo_meses: Período em meses para análise
-        threshold_conversao: % limite para baixa conversão
-        threshold_dias_risco: Dias limite para risco de inatividade
-    
-    Returns:
-        dict: Métricas do funil
-    """
-    hoje = datetime.now()
-    data_limite = hoje - pd.DateOffset(months=periodo_meses)
-    
-    # Filtrar por período
-    if 'data_faturamento' in df_vendas.columns:
-        df_vendas_periodo = df_vendas[pd.to_datetime(df_vendas['data_faturamento']) >= data_limite]
-    else:
-        df_vendas_periodo = df_vendas
+    def calculate_general_kpis(self, vendas_df: pd.DataFrame, 
+                              cotacoes_df: pd.DataFrame,
+                              produtos_cotados_df: pd.DataFrame,
+                              filters: Dict = None) -> Dict:
+        """Calcula KPIs gerais do sistema"""
         
-    if 'data' in df_cotacoes.columns:
-        df_cotacoes_periodo = df_cotacoes[pd.to_datetime(df_cotacoes['data']) >= data_limite]
-    else:
-        df_cotacoes_periodo = df_cotacoes
-    
-    # Calcular conversões por cliente
-    cotacoes_por_cliente = df_cotacoes_periodo.groupby('cod_cliente').agg({
-        'quantidade': 'sum',
-        'cliente': 'first'
-    }).reset_index()
-    
-    vendas_por_cliente = df_vendas_periodo.groupby('cod_cliente').agg({
-        'quantidade_faturada': 'sum',
-        'data_faturamento': 'max'
-    }).reset_index()
-    
-    # Merge para calcular conversão
-    funil_data = pd.merge(cotacoes_por_cliente, vendas_por_cliente, on='cod_cliente', how='left')
-    funil_data['quantidade_faturada'] = funil_data['quantidade_faturada'].fillna(0)
-    funil_data['conversao_pct'] = np.where(
-        funil_data['quantidade'] > 0,
-        (funil_data['quantidade_faturada'] / funil_data['quantidade']) * 100,
-        0
-    )
-    
-    # Calcular dias sem compra
-    funil_data['dias_sem_compra'] = np.where(
-        funil_data['data_faturamento'].notna(),
-        (hoje - pd.to_datetime(funil_data['data_faturamento'])).dt.days,
-        999
-    )
-    
-    # Lista A: Baixa conversão, alto volume
-    lista_a = funil_data[
-        (funil_data['conversao_pct'] < threshold_conversao) & 
-        (funil_data['quantidade'] > funil_data['quantidade'].quantile(0.75))
-    ].sort_values('quantidade', ascending=False)
-    
-    # Lista B: Risco de inatividade
-    lista_b = funil_data[
-        funil_data['dias_sem_compra'] > threshold_dias_risco
-    ].sort_values('dias_sem_compra', ascending=False)
-    
-    # Métricas gerais
-    total_clientes_cotaram = len(cotacoes_por_cliente)
-    total_clientes_compraram = len(vendas_por_cliente)
-    taxa_conversao_geral = (total_clientes_compraram / total_clientes_cotaram * 100) if total_clientes_cotaram > 0 else 0
-    
-    return {
-        'total_clientes_cotaram': total_clientes_cotaram,
-        'total_clientes_compraram': total_clientes_compraram,
-        'taxa_conversao_geral': round(taxa_conversao_geral, 2),
-        'lista_a': lista_a,
-        'lista_b': lista_b,
-        'funil_completo': funil_data
-    }
-
-def calculate_produtos_matrix(df_vendas, df_cotacoes, top_produtos=20, top_clientes=15):
-    """
-    Calcula matriz de produtos vs clientes para gráfico de bolhas
-    """
-    if df_cotacoes.empty:
-        return pd.DataFrame()
-    
-    # Agrupar cotações por cliente e material
-    cotacoes_matrix = df_cotacoes.groupby(['cod_cliente', 'cliente', 'material']).agg({
-        'quantidade': 'sum'
-    }).reset_index()
-    
-    # Agrupar vendas por cliente e material
-    if not df_vendas.empty:
-        vendas_matrix = df_vendas.groupby(['cod_cliente', 'material']).agg({
-            'quantidade_faturada': 'sum'
-        }).reset_index()
+        # Aplica filtros se fornecidos
+        vendas_filtered = self._apply_filters(vendas_df, filters) if filters else vendas_df
+        cotacoes_filtered = self._apply_filters(cotacoes_df, filters, is_cotacoes=True) if filters else cotacoes_df
         
-        # Merge para calcular % não comprado
-        matrix = pd.merge(cotacoes_matrix, vendas_matrix, on=['cod_cliente', 'material'], how='left')
-        matrix['quantidade_faturada'] = matrix['quantidade_faturada'].fillna(0)
-        matrix['pct_nao_comprado'] = np.where(
-            matrix['quantidade'] > 0,
-            ((matrix['quantidade'] - matrix['quantidade_faturada']) / matrix['quantidade']) * 100,
-            0
-        )
-    else:
-        matrix = cotacoes_matrix.copy()
-        matrix['quantidade_faturada'] = 0
-        matrix['pct_nao_comprado'] = 100
-    
-    # Filtrar top produtos e clientes
-    top_materiais = matrix.groupby('material')['quantidade'].sum().nlargest(top_produtos).index
-    top_clientes_list = matrix.groupby(['cod_cliente', 'cliente'])['quantidade'].sum().nlargest(top_clientes).index
-    
-    matrix_filtered = matrix[
-        matrix['material'].isin(top_materiais) & 
-        matrix[['cod_cliente', 'cliente']].apply(tuple, axis=1).isin(top_clientes_list)
-    ]
-    
-    return matrix_filtered
-
-def get_client_recommendations(client_code, df_vendas, df_cotacoes):
-    """
-    Gera recomendações específicas para um cliente
-    """
-    client_vendas = df_vendas[df_vendas['cod_cliente'] == client_code]
-    client_cotacoes = df_cotacoes[df_cotacoes['cod_cliente'] == client_code]
-    
-    recommendations = []
-    
-    if client_cotacoes.empty:
-        recommendations.append("Cliente não possui histórico de cotações recentes.")
-        return recommendations
-    
-    # Produtos cotados mas não comprados
-    materiais_cotados = set(client_cotacoes['material'].unique())
-    materiais_comprados = set(client_vendas['material'].unique()) if not client_vendas.empty else set()
-    materiais_nao_comprados = materiais_cotados - materiais_comprados
-    
-    if materiais_nao_comprados:
-        recommendations.append(f"Cliente cotou {len(materiais_nao_comprados)} produtos que não comprou. Foco em follow-up.")
-    
-    # Análise de frequência
-    if not client_vendas.empty and 'data_faturamento' in client_vendas.columns:
-        ultima_compra = pd.to_datetime(client_vendas['data_faturamento']).max()
-        dias_sem_compra = (datetime.now() - ultima_compra).days
+        # KPIs de vendas
+        entrada_pedidos = vendas_filtered['vlr_entrada'].sum() if 'vlr_entrada' in vendas_filtered.columns else 0
+        valor_carteira = vendas_filtered['vlr_carteira'].sum() if 'vlr_carteira' in vendas_filtered.columns else 0
+        faturamento = vendas_filtered['vlr_rol'].sum() if 'vlr_rol' in vendas_filtered.columns else 0
         
-        if dias_sem_compra > 90:
-            recommendations.append(f"Cliente sem comprar há {dias_sem_compra} dias. Agendar visita comercial.")
-        elif dias_sem_compra > 30:
-            recommendations.append("Cliente em período normal. Manter contato regular.")
+        # Quantidade de clientes únicos
+        total_clientes = vendas_filtered['cod_cliente'].nunique() if not vendas_filtered.empty else 0
+        
+        # Quantidade de produtos únicos
+        total_produtos = vendas_filtered['material'].nunique() if not vendas_filtered.empty else 0
+        
+        # Frequência média de compra (em dias)
+        freq_media = self._calculate_average_purchase_frequency(vendas_filtered)
+        
+        # Dias sem compra médios
+        dias_sem_compra_medio = self._calculate_average_days_without_purchase(vendas_filtered)
+        
+        # Mix médio de produtos
+        mix_medio = self._calculate_average_product_mix(vendas_filtered, cotacoes_filtered)
+        
+        # Comparação com ano anterior
+        comparacao_ano_anterior = self._calculate_year_comparison(vendas_df, filters)
+        
+        return {
+            'entrada_pedidos': {
+                'valor': entrada_pedidos,
+                'variacao': comparacao_ano_anterior.get('entrada_pedidos', 0)
+            },
+            'valor_carteira': {
+                'valor': valor_carteira,
+                'variacao': comparacao_ano_anterior.get('valor_carteira', 0)
+            },
+            'faturamento': {
+                'valor': faturamento,
+                'variacao': comparacao_ano_anterior.get('faturamento', 0)
+            },
+            'total_clientes': total_clientes,
+            'total_produtos': total_produtos,
+            'frequencia_media_compra': freq_media,
+            'dias_sem_compra_medio': dias_sem_compra_medio,
+            'mix_medio': mix_medio
+        }
     
-    # Volume de cotações vs compras
-    vol_cotado = client_cotacoes['quantidade'].sum()
-    vol_comprado = client_vendas['quantidade_faturada'].sum() if not client_vendas.empty else 0
+    def calculate_business_unit_kpis(self, vendas_df: pd.DataFrame, filters: Dict = None) -> Dict:
+        """Calcula KPIs por unidade de negócio"""
+        
+        vendas_filtered = self._apply_filters(vendas_df, filters) if filters else vendas_df
+        
+        if vendas_filtered.empty or 'unidade_negocio' not in vendas_filtered.columns:
+            return {}
+        
+        # Agrupa por unidade de negócio
+        un_kpis = {}
+        for un in vendas_filtered['unidade_negocio'].unique():
+            if pd.isna(un):
+                continue
+                
+            un_data = vendas_filtered[vendas_filtered['unidade_negocio'] == un]
+            
+            faturamento_atual = un_data['vlr_rol'].sum() if 'vlr_rol' in un_data.columns else 0
+            
+            # Calcula variação com ano anterior
+            variacao = self._calculate_un_year_comparison(vendas_df, un, filters)
+            
+            un_kpis[un] = {
+                'faturamento': faturamento_atual,
+                'variacao': variacao
+            }
+        
+        return un_kpis
     
-    if vol_cotado > 0:
-        conversao = (vol_comprado / vol_cotado) * 100
-        if conversao < 30:
-            recommendations.append(f"Taxa de conversão baixa ({conversao:.1f}%). Revisar proposta comercial.")
+    def calculate_client_kpis(self, vendas_df: pd.DataFrame, 
+                             cotacoes_df: pd.DataFrame,
+                             produtos_cotados_df: pd.DataFrame,
+                             filters: Dict = None) -> pd.DataFrame:
+        """Calcula KPIs por cliente"""
+        
+        vendas_filtered = self._apply_filters(vendas_df, filters) if filters else vendas_df
+        cotacoes_filtered = self._apply_filters(cotacoes_df, filters, is_cotacoes=True) if filters else cotacoes_df
+        
+        if vendas_filtered.empty:
+            return pd.DataFrame()
+        
+        # Agrupa por cliente
+        client_kpis = []
+        
+        for cliente in vendas_filtered['cod_cliente'].unique():
+            if pd.isna(cliente):
+                continue
+                
+            cliente_vendas = vendas_filtered[vendas_filtered['cod_cliente'] == cliente]
+            cliente_cotacoes = cotacoes_filtered[cotacoes_filtered['cod_cliente'] == cliente] if not cotacoes_filtered.empty else pd.DataFrame()
+            
+            # Nome do cliente
+            nome_cliente = cliente_vendas['cliente'].iloc[0] if 'cliente' in cliente_vendas.columns and not cliente_vendas.empty else 'N/A'
+            
+            # Dias sem compra
+            dias_sem_compra = self._calculate_days_without_purchase(cliente_vendas)
+            
+            # Frequência média de compra
+            freq_compra = self._calculate_purchase_frequency(cliente_vendas)
+            
+            # Mix de produtos
+            produtos_comprados = set(cliente_vendas['material'].unique())
+            produtos_cotados = set(cliente_cotacoes['material'].unique()) if not cliente_cotacoes.empty else set()
+            
+            mix_produtos = len(produtos_comprados)
+            total_cotados = len(produtos_cotados)
+            total_comprados = len(produtos_comprados & produtos_cotados)
+            
+            # Percentual não comprado
+            perc_nao_comprado = ((total_cotados - total_comprados) / total_cotados * 100) if total_cotados > 0 else 0
+            
+            # Unidades de negócio
+            unidades = list(cliente_vendas['unidade_negocio'].unique()) if 'unidade_negocio' in cliente_vendas.columns else []
+            unidades_str = ', '.join([str(un) for un in unidades if not pd.isna(un)])
+            
+            # Faturamento total
+            faturamento_total = cliente_vendas['vlr_rol'].sum() if 'vlr_rol' in cliente_vendas.columns else 0
+            
+            client_kpis.append({
+                'cod_cliente': cliente,
+                'cliente': nome_cliente,
+                'dias_sem_compra': dias_sem_compra,
+                'frequencia_media_compra': freq_compra,
+                'mix_produtos': mix_produtos,
+                'percentual_mix': (mix_produtos / vendas_filtered['material'].nunique() * 100) if not vendas_filtered.empty else 0,
+                'unidades_negocio': unidades_str,
+                'produtos_cotados': total_cotados,
+                'produtos_comprados': total_comprados,
+                'perc_nao_comprado': perc_nao_comprado,
+                'faturamento_total': faturamento_total
+            })
+        
+        df_result = pd.DataFrame(client_kpis)
+        
+        # Ordena por faturamento total (maior para menor)
+        if not df_result.empty:
+            df_result = df_result.sort_values('faturamento_total', ascending=False)
+        
+        return df_result
     
-    return recommendations
-
-def calculate_material_analysis(df_vendas, df_cotacoes):
-    if df_cotacoes.empty: return pd.DataFrame()
-    df_cotacoes.loc[:, 'data'] = pd.to_datetime(df_cotacoes['data'])
-    agg_cotacoes = df_cotacoes.groupby('material').agg(
-        total_cotado_qtd=('quantidade', 'sum'),
-        primeira_cotacao=('data', 'min'),
-        ultima_cotacao=('data', 'max')
-    ).reset_index()
-    agg_cotacoes['meses_ativo'] = ((agg_cotacoes['ultima_cotacao'] - agg_cotacoes['primeira_cotacao']).dt.days / 30.44).replace(0, 1).round()
-    agg_cotacoes['demanda_mensal'] = (agg_cotacoes['total_cotado_qtd'] / agg_cotacoes['meses_ativo']).round(2)
-    agg_vendas = df_vendas.groupby('material')['quantidade_faturada'].sum().reset_index(name='total_comprado_qtd')
-    df_analysis = pd.merge(agg_cotacoes, agg_vendas, on='material', how='left').fillna(0)
-    df_analysis['razao_cot_compra'] = np.where(
-        df_analysis['total_comprado_qtd'] > 0,
-        df_analysis['total_cotado_qtd'] / df_analysis['total_comprado_qtd'],
-        df_analysis['total_cotado_qtd']
-    )
-    product_map = df_vendas[['material', 'produto']].drop_duplicates(subset=['material'])
-    df_analysis = pd.merge(df_analysis, product_map, on='material', how='left')
-    return df_analysis[['material', 'produto', 'demanda_mensal', 'razao_cot_compra', 'total_cotado_qtd', 'total_comprado_qtd']]
-
-def get_top_products_comparison(df_vendas, selected_clients=[], top_n=20):
-    if df_vendas.empty: return pd.DataFrame()
-    top_todos = df_vendas.groupby('produto')['quantidade_faturada'].sum().nlargest(top_n or 20).reset_index()
-    top_todos['grupo'] = 'Todos os Clientes'
-    if selected_clients:
-        df_vendas_cliente = df_vendas[df_vendas['cod_cliente'].isin(selected_clients)]
-        if not df_vendas_cliente.empty:
-            top_cliente = df_vendas_cliente.groupby('produto')['quantidade_faturada'].sum().nlargest(top_n or 20).reset_index()
-            top_cliente['grupo'] = 'Clientes Selecionados'
-            return pd.concat([top_todos, top_cliente])
-    return top_todos
-
-# --- FUNÇÃO QUE FALTAVA ---
-def get_top_n_products_list(df_vendas, top_n=20):
-    """Retorna uma lista dos Top N produtos mais comprados (globais)."""
-    if df_vendas.empty:
-        return []
-    return df_vendas.groupby('produto')['quantidade_faturada'].sum().nlargest(top_n or 20).index.tolist()
-
-def generate_purchase_list(df_vendas, df_cotacoes, selected_clients=None):
-    if df_vendas.empty or df_cotacoes.empty: return pd.DataFrame()
-    total_cotado = df_cotacoes.groupby('material')['quantidade'].sum()
-    total_vendido = df_vendas.groupby('material')['quantidade_faturada'].sum()
-    df_score = pd.concat([total_cotado, total_vendido], axis=1).fillna(0)
-    df_score.columns = ['qtd_cotada', 'qtd_vendida']
-    df_score['score'] = (df_score['qtd_cotada'] * 0.5) + (df_score['qtd_vendida'] * 1.5)
-    df_score = df_score[df_score['score'] > 0].sort_values(by='score', ascending=False)
-    if selected_clients:
-        compras_cliente = df_vendas[df_vendas['cod_cliente'].isin(selected_clients)]['material'].unique()
-        df_score = df_score[~df_score.index.isin(compras_cliente)]
-    sugestoes = df_score.head(50).reset_index()
+    def _apply_filters(self, df: pd.DataFrame, filters: Dict, is_cotacoes: bool = False) -> pd.DataFrame:
+        """Aplica filtros aos dados"""
+        if df.empty:
+            return df
+            
+        df_filtered = df.copy()
+        
+        # Filtro de ano
+        if filters.get('ano') and filters['ano'] != SENTINEL_ALL:
+            date_col = 'data' if is_cotacoes else 'data_faturamento'
+            if date_col in df_filtered.columns:
+                if isinstance(filters['ano'], list) and len(filters['ano']) == 2:
+                    start_year, end_year = filters['ano']
+                    df_filtered = df_filtered[
+                        (df_filtered[date_col].dt.year >= start_year) &
+                        (df_filtered[date_col].dt.year <= end_year)
+                    ]
+                else:
+                    year = _norm_year(filters['ano'])
+                    if year:
+                        df_filtered = df_filtered[df_filtered[date_col].dt.year == year]
+        
+        # Filtro de mês
+        if filters.get('mes') and filters['mes'] != SENTINEL_ALL:
+            date_col = 'data' if is_cotacoes else 'data_faturamento'
+            if date_col in df_filtered.columns:
+                if isinstance(filters['mes'], list) and len(filters['mes']) == 2:
+                    start_month, end_month = filters['mes']
+                    df_filtered = df_filtered[
+                        (df_filtered[date_col].dt.month >= start_month) &
+                        (df_filtered[date_col].dt.month <= end_month)
+                    ]
+        
+        # Filtro de cliente
+        if filters.get('cliente') and filters['cliente'] != SENTINEL_ALL:
+            if isinstance(filters['cliente'], list):
+                df_filtered = df_filtered[df_filtered['cod_cliente'].isin(filters['cliente'])]
+            else:
+                df_filtered = df_filtered[df_filtered['cod_cliente'] == filters['cliente']]
+        
+        # Filtro de hierarquia de produto
+        if filters.get('hierarquia_produto') and filters['hierarquia_produto'] != SENTINEL_ALL:
+            if 'hier_produto_1' in df_filtered.columns:
+                if isinstance(filters['hierarquia_produto'], list):
+                    df_filtered = df_filtered[
+                        df_filtered['hier_produto_1'].isin(filters['hierarquia_produto']) |
+                        df_filtered.get('hier_produto_2', pd.Series()).isin(filters['hierarquia_produto']) |
+                        df_filtered.get('hier_produto_3', pd.Series()).isin(filters['hierarquia_produto'])
+                    ]
+        
+        # Filtro de canal
+        if filters.get('canal') and filters['canal'] != SENTINEL_ALL and 'canal_distribuicao' in df_filtered.columns:
+            if isinstance(filters['canal'], list):
+                df_filtered = df_filtered[df_filtered['canal_distribuicao'].isin(filters['canal'])]
+            else:
+                df_filtered = df_filtered[df_filtered['canal_distribuicao'] == filters['canal']]
+        
+        return df_filtered
     
-    df_raw_vendas = db.get_raw_data_as_df('raw_vendas')
-    product_map = df_raw_vendas[['Material', 'Produto', 'Hier. Produto 3']].rename(
-        columns={'Material': 'material', 'Produto': 'produto'}
-    ).drop_duplicates(subset=['material'])
+    def _calculate_days_without_purchase(self, cliente_vendas: pd.DataFrame) -> int:
+        """Calcula dias sem compra para um cliente"""
+        if cliente_vendas.empty or 'data_faturamento' not in cliente_vendas.columns:
+            return 0
+        
+        last_purchase = cliente_vendas['data_faturamento'].max()
+        if pd.isna(last_purchase):
+            return 999  # Valor alto para indicar sem compras
+        
+        days_diff = (datetime.now() - last_purchase).days
+        return max(0, days_diff)
     
-    sugestoes = pd.merge(sugestoes, product_map, on='material', how='left')
-    df_analysis = calculate_material_analysis(df_vendas, df_cotacoes)
-    sugestoes = pd.merge(sugestoes, df_analysis[['material', 'demanda_mensal']], on='material', how='left')
-    sugestoes_final = sugestoes[['Hier. Produto 3', 'material', 'produto', 'demanda_mensal']].rename(columns={
-        'Hier. Produto 3': 'Categoria',
-        'material': 'Código do Material',
-        'produto': 'Descrição do Produto',
-        'demanda_mensal': 'Sugestão de Giro Mensal'
-    })
-    return sugestoes_final.sort_values(by=['Categoria', 'Sugestão de Giro Mensal'], ascending=[True, False])
+    def _calculate_purchase_frequency(self, cliente_vendas: pd.DataFrame) -> float:
+        """Calcula frequência média de compra para um cliente (em dias)"""
+        if cliente_vendas.empty or 'data_faturamento' not in cliente_vendas.columns:
+            return 0
+        
+        dates = cliente_vendas['data_faturamento'].dropna().sort_values()
+        if len(dates) < 2:
+            return 0
+        
+        intervals = []
+        for i in range(1, len(dates)):
+            interval = (dates.iloc[i] - dates.iloc[i-1]).days
+            intervals.append(interval)
+        
+        return np.mean(intervals) if intervals else 0
+    
+    def _calculate_average_purchase_frequency(self, vendas_df: pd.DataFrame) -> float:
+        """Calcula frequência média global de compra"""
+        if vendas_df.empty:
+            return 0
+        
+        frequencies = []
+        for cliente in vendas_df['cod_cliente'].unique():
+            cliente_data = vendas_df[vendas_df['cod_cliente'] == cliente]
+            freq = self._calculate_purchase_frequency(cliente_data)
+            if freq > 0:
+                frequencies.append(freq)
+        
+        return np.mean(frequencies) if frequencies else 0
+    
+    def _calculate_average_days_without_purchase(self, vendas_df: pd.DataFrame) -> float:
+        """Calcula média de dias sem compra"""
+        if vendas_df.empty:
+            return 0
+        
+        days_list = []
+        for cliente in vendas_df['cod_cliente'].unique():
+            cliente_data = vendas_df[vendas_df['cod_cliente'] == cliente]
+            days = self._calculate_days_without_purchase(cliente_data)
+            days_list.append(days)
+        
+        return np.mean(days_list) if days_list else 0
+    
+    def _calculate_average_product_mix(self, vendas_df: pd.DataFrame, cotacoes_df: pd.DataFrame) -> float:
+        """Calcula mix médio de produtos"""
+        if vendas_df.empty:
+            return 0
+        
+        total_produtos_disponiveis = vendas_df['material'].nunique()
+        if total_produtos_disponiveis == 0:
+            return 0
+        
+        mix_list = []
+        for cliente in vendas_df['cod_cliente'].unique():
+            cliente_produtos = vendas_df[vendas_df['cod_cliente'] == cliente]['material'].nunique()
+            mix_perc = (cliente_produtos / total_produtos_disponiveis) * 100
+            mix_list.append(mix_perc)
+        
+        return np.mean(mix_list) if mix_list else 0
+    
+    def _calculate_year_comparison(self, vendas_df: pd.DataFrame, filters: Dict = None) -> Dict:
+        """Calcula comparação com ano anterior"""
+        if vendas_df.empty or 'data_faturamento' not in vendas_df.columns:
+            return {}
+        
+        current_year = self.current_year
+        previous_year = current_year - 1
+        
+        # Dados do ano atual
+        current_year_data = vendas_df[vendas_df['data_faturamento'].dt.year == current_year]
+        
+        # Dados do ano anterior
+        previous_year_data = vendas_df[vendas_df['data_faturamento'].dt.year == previous_year]
+        
+        def calculate_variation(current_value, previous_value):
+            if previous_value == 0:
+                return 0 if current_value == 0 else 100
+            return ((current_value - previous_value) / previous_value) * 100
+        
+        # Entrada de pedidos
+        entrada_atual = current_year_data['vlr_entrada'].sum() if 'vlr_entrada' in current_year_data.columns else 0
+        entrada_anterior = previous_year_data['vlr_entrada'].sum() if 'vlr_entrada' in previous_year_data.columns else 0
+        
+        # Valor carteira
+        carteira_atual = current_year_data['vlr_carteira'].sum() if 'vlr_carteira' in current_year_data.columns else 0
+        carteira_anterior = previous_year_data['vlr_carteira'].sum() if 'vlr_carteira' in previous_year_data.columns else 0
+        
+        # Faturamento
+        faturamento_atual = current_year_data['vlr_rol'].sum() if 'vlr_rol' in current_year_data.columns else 0
+        faturamento_anterior = previous_year_data['vlr_rol'].sum() if 'vlr_rol' in previous_year_data.columns else 0
+        
+        return {
+            'entrada_pedidos': calculate_variation(entrada_atual, entrada_anterior),
+            'valor_carteira': calculate_variation(carteira_atual, carteira_anterior),
+            'faturamento': calculate_variation(faturamento_atual, faturamento_anterior)
+        }
+    
+    def _calculate_un_year_comparison(self, vendas_df: pd.DataFrame, unidade_negocio: str, filters: Dict = None) -> float:
+        """Calcula comparação com ano anterior para uma unidade de negócio"""
+        if vendas_df.empty or 'unidade_negocio' not in vendas_df.columns:
+            return 0
+        
+        un_data = vendas_df[vendas_df['unidade_negocio'] == unidade_negocio]
+        
+        current_year = self.current_year
+        previous_year = current_year - 1
+        
+        current_year_value = un_data[un_data['data_faturamento'].dt.year == current_year]['vlr_rol'].sum()
+        previous_year_value = un_data[un_data['data_faturamento'].dt.year == previous_year]['vlr_rol'].sum()
+        
+        if previous_year_value == 0:
+            return 0 if current_year_value == 0 else 100
+        
+        return ((current_year_value - previous_year_value) / previous_year_value) * 100
+    
+    def get_top_clients(self, vendas_df: pd.DataFrame, top_n: int = 10, filters: Dict = None) -> pd.DataFrame:
+        """Retorna os top N clientes por faturamento"""
+        vendas_filtered = self._apply_filters(vendas_df, filters) if filters else vendas_df
+        
+        if vendas_filtered.empty:
+            return pd.DataFrame()
+        
+        top_clients = (vendas_filtered.groupby(['cod_cliente', 'cliente'])['vlr_rol']
+                      .sum()
+                      .reset_index()
+                      .sort_values('vlr_rol', ascending=False)
+                      .head(top_n))
+        
+        return top_clients
