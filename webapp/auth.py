@@ -11,50 +11,70 @@ import dash
 
 def create_login_layout():
     """Cria layout da página de login"""
-    return dbc.Container([
-        dbc.Row([
-            dbc.Col([
-                dbc.Card([
-                    dbc.CardHeader([
-                        html.H3("Dashboard WEG", className="text-center mb-0"),
-                        html.P("Laura Representações", className="text-center text-muted mb-0")
-                    ]),
-                    dbc.CardBody([
-                        html.Div(id="login-alerts"),
-                        dbc.Form([
-                            dbc.Row([
-                                dbc.Label("Usuário", html_for="login-username"),
-                                dbc.Input(
-                                    id="login-username",
-                                    type="text",
-                                    placeholder="Digite seu usuário",
-                                    required=True
-                                )
-                            ], className="mb-3"),
-                            dbc.Row([
-                                dbc.Label("Senha", html_for="login-password"),
-                                dbc.Input(
-                                    id="login-password",
-                                    type="password",
-                                    placeholder="Digite sua senha",
-                                    required=True
-                                )
-                            ], className="mb-3"),
-                            dbc.Row([
-                                dbc.Button(
-                                    "Entrar",
-                                    id="login-button",
-                                    color="primary",
-                                    className="w-100",
-                                    size="lg"
-                                )
+    return html.Div([
+        dbc.Container([
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader([
+                            html.Div([
+                                html.H2("Dashboard WEG", className="text-center mb-2", style={
+                                    'color': '#003366',
+                                    'font-weight': 'bold'
+                                }),
+                                html.P("Laura Representações", className="text-center text-muted mb-0", style={
+                                    'font-size': '14px'
+                                })
                             ])
-                        ])
-                    ])
-                ], className="shadow")
-            ], width=12, md=6, lg=4)
-        ], justify="center", className="min-vh-100 align-items-center")
-    ], fluid=True, className="login-container")
+                        ], className="text-center py-4"),
+                        dbc.CardBody([
+                            html.Div(id="login-alerts"),
+                            dbc.Form([
+                                dbc.Row([
+                                    dbc.Label("Usuário", html_for="login-username", className="mb-2"),
+                                    dbc.Input(
+                                        id="login-username",
+                                        type="text",
+                                        placeholder="Digite seu usuário",
+                                        required=True,
+                                        className="mb-3"
+                                    )
+                                ]),
+                                dbc.Row([
+                                    dbc.Label("Senha", html_for="login-password", className="mb-2"),
+                                    dbc.Input(
+                                        id="login-password",
+                                        type="password",
+                                        placeholder="Digite sua senha",
+                                        required=True,
+                                        className="mb-4"
+                                    )
+                                ]),
+                                dbc.Row([
+                                    dbc.Button(
+                                        "Entrar",
+                                        id="login-button",
+                                        color="primary",
+                                        className="w-100",
+                                        size="lg",
+                                        style={
+                                            'background-color': '#003366',
+                                            'border-color': '#003366'
+                                        }
+                                    )
+                                ])
+                            ])
+                        ], className="p-4")
+                    ], className="shadow-lg border-0", style={
+                        'border-radius': '15px'
+                    })
+                ], width=12, md=6, lg=4, xl=3)
+            ], justify="center", className="min-vh-100 align-items-center")
+        ], fluid=True)
+    ], style={
+        'background': 'linear-gradient(135deg, #003366 0%, #0066cc 100%)',
+        'min-height': '100vh'
+    })
 
 # Callback para processar login
 @app.callback(

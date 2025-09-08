@@ -149,7 +149,7 @@ def create_main_layout():
             # Header superior
             html.Div([
                 html.Div([
-                    html.H4(id="page-title", className="mb-0"),
+                    html.H4("Dashboard WEG", id="page-title", className="mb-0"),
                     create_user_info_component()
                 ], className="d-flex justify-content-between align-items-center")
             ], className="bg-white p-3 mb-4 shadow-sm"),
@@ -380,7 +380,7 @@ def create_config_layout():
                                     'textAlign': 'center',
                                     'margin': '10px'
                                 },
-                                multiple=False
+                                multiple=True
                             ),
                             
                             dcc.Upload(
@@ -398,7 +398,7 @@ def create_config_layout():
                                     'textAlign': 'center',
                                     'margin': '10px'
                                 },
-                                multiple=False
+                                multiple=True
                             ),
                             
                             dcc.Upload(
@@ -416,7 +416,7 @@ def create_config_layout():
                                     'textAlign': 'center',
                                     'margin': '10px'
                                 },
-                                multiple=False
+                                multiple=True
                             ),
                             
                             html.Div(id="upload-status", className="mt-3"),

@@ -14,32 +14,17 @@ import webapp.auth
 
 # Callback principal de roteamento
 @app.callback(
-    [Output('page-content', 'children'),
-     Output('page-title', 'children', allow_duplicate=True)],
+    Output('page-content', 'children'),
     [Input('url', 'pathname')],
     prevent_initial_call=True
 )
 def display_page(pathname):
     """Controla roteamento e exibição de páginas"""
     
-    # Define títulos das páginas
-    titles = {
-        '/app/overview': 'Visão Geral',
-        '/app/clients': 'KPIs por Cliente', 
-        '/app/products': 'Mix de Produtos',
-        '/app/funnel': 'Funil & Ações',
-        '/app/insights': 'Insights IA',
-        '/app/config': 'Configurações',
-        '/login': 'Login'
-    }
-    
     # Obtém layout da página
     layout = get_layout(pathname)
     
-    # Obtém título da página
-    title = titles.get(pathname, 'Dashboard WEG')
-    
-    return layout, title
+    return layout
 
 # Callback para conteúdo principal baseado na página
 @app.callback(
@@ -93,4 +78,4 @@ if __name__ == '__main__':
     print("📊 Acesse: http://127.0.0.1:8050")
     print("👤 Login padrão: admin / admin123")
     
-    app.run_server(debug=True, host='127.0.0.1', port=8050)
+    app.run(debug=True, host='127.0.0.1', port=8050)

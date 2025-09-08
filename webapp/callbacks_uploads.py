@@ -1,7 +1,7 @@
 """
 Callbacks para upload de arquivos
 """
-
+import dash
 from dash import Input, Output, State, html
 import dash_bootstrap_components as dbc
 import base64
@@ -47,19 +47,19 @@ def handle_file_uploads(vendas_content, cotacoes_content, materiais_content, loa
                     f"✅ Dados carregados com sucesso! Dataset: {latest['name']} "
                     f"(Uploaded: {latest['uploaded_at']})",
                     color="success",
-                    duration=5000
+                    duration=10000
                 )
             else:
                 return dbc.Alert(
                     "⚠️ Nenhum dataset encontrado no banco de dados.",
                     color="warning",
-                    duration=5000
+                    duration=10000
                 )
         except Exception as e:
             return dbc.Alert(
                 f"❌ Erro ao carregar dados: {str(e)}",
                 color="danger",
-                duration=5000
+                duration=10000
             )
     
     # Processamento de uploads
@@ -77,35 +77,81 @@ def handle_file_uploads(vendas_content, cotacoes_content, materiais_content, loa
     
     for content, filename, file_type in upload_data:
         if content and filename:
-            try:
-                # Valida arquivo
-                content_type, content_string = content.split(',')
-                decoded = base64.b64decode(content_string)
-                file_size = len(decoded)
-                
-                validation = security_manager.validate_file_upload(filename, file_size)
-                if not validation['valid']:
-                    errors.extend(validation['errors'])
-                    continue
-                
-                # Lê arquivo Excel
-                df = pd.read_excel(io.BytesIO(decoded))
-                
-                # Processa baseado no tipo
-                if file_type == 'vendas':
-                    df_processed = data_loader.normalize_vendas_data(df)
-                    dataframes['vendas'] = df_processed
-                elif file_type == 'cotacoes':
-                    df_processed = data_loader.normalize_cotacoes_data(df)
-                    dataframes['cotacoes'] = df_processed
-                elif file_type == 'materiais':
-                    df_processed = data_loader.normalize_produtos_cotados_data(df)
-                    dataframes['produtos_cotados'] = df_processed
-                
-                uploads_processed.append(f"✅ {filename} - {len(df_processed)} registros")
-                
-            except Exception as e:
-                errors.append(f"❌ Erro ao processar {filename}: {str(e)}")
+            # Se content e filename são listas (múltiplos arquivos)
+            if isinstance(content, list) and isinstance(filename, list):
+                for i, (single_content, single_filename) in enumerate(zip(content, filename)):
+                    try:
+                        # Valida arquivo
+                        content_type, content_string = single_content.split(',')
+                        decoded = base64.b64decode(content_string)
+                        file_size = len(decoded)
+                        
+                        validation = security_manager.validate_file_upload(single_filename, file_size)
+                        if not validation['valid']:
+                            errors.extend(validation['errors'])
+                            continue
+                        
+                        # Lê arquivo Excel
+                        df = pd.read_excel(io.BytesIO(decoded))
+                        
+                        # Processa baseado no tipo
+                        if file_type == 'vendas':
+                            df_processed = data_loader.normalize_vendas_data(df)
+                            if dataframes['vendas'] is None:
+                                dataframes['vendas'] = df_processed
+                            else:
+                                dataframes['vendas'] = pd.concat([dataframes['vendas'], df_processed], ignore_index=True)
+                        elif file_type == 'cotacoes':
+                            df_processed = data_loader.normalize_cotacoes_data(df)
+                            if dataframes['cotacoes'] is None:
+                                dataframes['cotacoes'] = df_processed
+                            else:
+                                dataframes['cotacoes'] = pd.concat([dataframes['cotacoes'], df_processed], ignore_index=True)
+                        elif file_type == 'materiais':
+                            df_processed = data_loader.normalize_produtos_cotados_data(df)
+                            if dataframes['produtos_cotados'] is None:
+                                dataframes['produtos_cotados'] = df_processed
+                            else:
+                                dataframes['produtos_cotados'] = pd.concat([dataframes['produtos_cotados'], df_processed], ignore_index=True)
+                        
+                        uploads_processed.append(f"✅ {single_filename} - {len(df_processed)} registros")
+                        
+                    except Exception as e:
+                        errors.append(f"❌ Erro ao processar {single_filename}: {str(e)}")
+            
+            # Se content e filename são strings (arquivo único)
+            elif isinstance(content, str) and isinstance(filename, str):
+                try:
+                    # Valida arquivo
+                    content_type, content_string = content.split(',')
+                    decoded = base64.b64decode(content_string)
+                    file_size = len(decoded)
+                    
+                    validation = security_manager.validate_file_upload(filename, file_size)
+                    if not validation['valid']:
+                        errors.extend(validation['errors'])
+                        continue
+                    
+                    # Lê arquivo Excel
+                    df = pd.read_excel(io.BytesIO(decoded))
+                    
+                    # Processa baseado no tipo
+                    if file_type == 'vendas':
+                        df_processed = data_loader.normalize_vendas_data(df)
+                        dataframes['vendas'] = df_processed
+                    elif file_type == 'cotacoes':
+                        df_processed = data_loader.normalize_cotacoes_data(df)
+                        dataframes['cotacoes'] = df_processed
+                    elif file_type == 'materiais':
+                        df_processed = data_loader.normalize_produtos_cotados_data(df)
+                        dataframes['produtos_cotados'] = df_processed
+                    
+                    uploads_processed.append(f"✅ {filename} - {len(df_processed)} registros")
+                    
+                except Exception as e:
+                    errors.append(f"❌ Erro ao processar {filename}: {str(e)}")
+            else:
+                errors.append(f"❌ Tipo de dados inválido para {file_type}: content={type(content)}, filename={type(filename)}")
     
     # Se houve uploads processados, salva no banco
     if uploads_processed and not errors:

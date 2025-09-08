@@ -25,6 +25,7 @@ from .security import (
     is_authenticated, 
     login_user, 
     logout_user,
+    get_current_user_id,
     rate_limiter,
     check_file_security
 )
@@ -49,6 +50,7 @@ __all__ = [
     'is_authenticated',
     'login_user',
     'logout_user',
+    'get_current_user_id',
     'rate_limiter',
     'check_file_security'
 ]

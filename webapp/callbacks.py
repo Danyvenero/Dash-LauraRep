@@ -320,4 +320,28 @@ def update_pareto_chart(filtro_ano, filtro_mes, filtro_cliente):
         print(f"Erro ao criar gráfico de Pareto: {e}")
         return viz_gen._create_empty_chart("Erro ao processar dados de produtos")
 
+
+# Callback para atualizar título da página
+@app.callback(
+    Output('page-title', 'children'),
+    [Input('url', 'pathname')],
+    prevent_initial_call=True
+)
+def update_page_title(pathname):
+    """Atualiza o título da página baseado na URL"""
+    
+    titles = {
+        '/app/overview': 'Visão Geral',
+        '/app/clients': 'KPIs por Cliente', 
+        '/app/products': 'Mix de Produtos',
+        '/app/funnel': 'Funil & Ações',
+        '/app/insights': 'Insights IA',
+        '/app/config': 'Configurações',
+        '/app': 'Visão Geral',
+        '/': 'Visão Geral'
+    }
+    
+    return titles.get(pathname, 'Dashboard WEG')
+
+
 print("✅ Callbacks principais registrados com sucesso")
