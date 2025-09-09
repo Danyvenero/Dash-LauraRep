@@ -38,30 +38,305 @@ viz_gen = VisualizationGenerator()
 from dash import dcc
 import dash_bootstrap_components as dbc
 
-# 🔥 CALLBACK RESPONSIVO AOS FILTROS - Atualiza KPIs baseado nos filtros
+# =======================================
+# CALLBACKS INDIVIDUAIS PARA CADA COMPONENTE
+# =======================================
+# CALLBACKS INDIVIDUAIS PARA OVERVIEW
+# =======================================
+
+# Callback para KPI de Entrada de Pedidos
 @app.callback(
-    [Output('kpi-entrada-pedidos', 'children'),
-     Output('kpi-valor-carteira', 'children'), 
-     Output('kpi-faturamento', 'children'),
-     Output('kpis-unidades-negocio', 'children'),
-     Output('grafico-evolucao-vendas', 'figure')],
+    Output('kpi-entrada-pedidos', 'children'),
     [Input('global-filtro-ano', 'value'),
      Input('global-filtro-mes', 'value'),
      Input('global-filtro-cliente', 'value'),
-     Input('global-filtro-hierarquia', 'value'),
-     Input('global-filtro-canal', 'value'),
      Input('url', 'pathname')],
     prevent_initial_call=False
 )
-def update_overview_kpis(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, pathname):
+def update_kpi_entrada(filtro_ano, filtro_mes, filtro_cliente, pathname):
+    """Atualiza KPI de Entrada de Pedidos"""
+    print(f"🔄 UPDATE_KPI_ENTRADA executado - pathname: {pathname}")
+    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
+    
+    if pathname not in ['/', '/app', '/app/', '/app/overview']:
+        return "R$ 0"
+    
+    try:
+        vendas_df = load_vendas_data()
+        if vendas_df.empty:
+            return "R$ 0"
+            
+        # Aplica filtros (só se tiver valores válidos)
+        df_filtrado = vendas_df.copy()
+        
+        # Filtro por ano - verifica se é lista não vazia
+        if filtro_ano and isinstance(filtro_ano, list) and len(filtro_ano) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro ano: {filtro_ano}")
+            df_filtrado = df_filtrado[df_filtrado['data'].dt.year.isin(filtro_ano)]
+            
+        # Filtro por mês - verifica se é lista não vazia
+        if filtro_mes and isinstance(filtro_mes, list) and len(filtro_mes) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro mes: {filtro_mes}")
+            df_filtrado = df_filtrado[df_filtrado['data'].dt.month.isin(filtro_mes)]
+            
+        # Filtro por cliente - verifica se é lista não vazia
+        if filtro_cliente and isinstance(filtro_cliente, list) and len(filtro_cliente) > 0 and 'cod_cliente' in df_filtrado.columns:
+            print(f"   Aplicando filtro cliente: {filtro_cliente}")
+            df_filtrado = df_filtrado[df_filtrado['cod_cliente'].isin(filtro_cliente)]
+        
+        entrada_valor = df_filtrado['vlr_entrada'].sum() if 'vlr_entrada' in df_filtrado.columns else 0
+        print(f"💰 KPI Entrada calculado: {entrada_valor:,.0f} (de {len(df_filtrado)} registros)")
+        return f"R$ {entrada_valor:,.0f}"
+        
+    except Exception as e:
+        print(f"❌ Erro em update_kpi_entrada: {e}")
+        return "Erro"
+
+# Callback para KPI de Carteira
+@app.callback(
+    Output('kpi-valor-carteira', 'children'),
+    [Input('global-filtro-ano', 'value'),
+     Input('global-filtro-mes', 'value'),
+     Input('global-filtro-cliente', 'value'),
+     Input('url', 'pathname')],
+    prevent_initial_call=False
+)
+def update_kpi_carteira(filtro_ano, filtro_mes, filtro_cliente, pathname):
+    """Atualiza KPI de Valor Carteira"""
+    print(f"🔄 UPDATE_KPI_CARTEIRA executado - pathname: {pathname}")
+    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
+    
+    if pathname not in ['/', '/app', '/app/', '/app/overview']:
+        return "R$ 0"
+    
+    try:
+        vendas_df = load_vendas_data()
+        if vendas_df.empty:
+            return "R$ 0"
+            
+        # Aplica filtros (só se tiver valores válidos)
+        df_filtrado = vendas_df.copy()
+        
+        # Filtro por ano - verifica se é lista não vazia
+        if filtro_ano and isinstance(filtro_ano, list) and len(filtro_ano) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro ano: {filtro_ano}")
+            df_filtrado = df_filtrado[df_filtrado['data'].dt.year.isin(filtro_ano)]
+            
+        # Filtro por mês - verifica se é lista não vazia
+        if filtro_mes and isinstance(filtro_mes, list) and len(filtro_mes) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro mes: {filtro_mes}")
+            df_filtrado = df_filtrado[df_filtrado['data'].dt.month.isin(filtro_mes)]
+            
+        # Filtro por cliente - verifica se é lista não vazia
+        if filtro_cliente and isinstance(filtro_cliente, list) and len(filtro_cliente) > 0 and 'cod_cliente' in df_filtrado.columns:
+            print(f"   Aplicando filtro cliente: {filtro_cliente}")
+            df_filtrado = df_filtrado[df_filtrado['cod_cliente'].isin(filtro_cliente)]
+        
+        carteira_valor = df_filtrado['vlr_carteira'].sum() if 'vlr_carteira' in df_filtrado.columns else 0
+        print(f"💰 KPI Carteira calculado: {carteira_valor:,.0f} (de {len(df_filtrado)} registros)")
+        return f"R$ {carteira_valor:,.0f}"
+        
+    except Exception as e:
+        print(f"❌ Erro em update_kpi_carteira: {e}")
+        return "Erro"
+
+# Callback para KPI de Faturamento
+@app.callback(
+    Output('kpi-faturamento', 'children'),
+    [Input('global-filtro-ano', 'value'),
+     Input('global-filtro-mes', 'value'),
+     Input('global-filtro-cliente', 'value'),
+     Input('url', 'pathname')],
+    prevent_initial_call=False
+)
+def update_kpi_faturamento(filtro_ano, filtro_mes, filtro_cliente, pathname):
+    """Atualiza KPI de Faturamento"""
+    print(f"🔄 UPDATE_KPI_FATURAMENTO executado - pathname: {pathname}")
+    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
+    
+    if pathname not in ['/', '/app', '/app/', '/app/overview']:
+        return "R$ 0"
+    
+    try:
+        vendas_df = load_vendas_data()
+        if vendas_df.empty:
+            return "R$ 0"
+            
+        # Aplica filtros (só se tiver valores válidos)
+        df_filtrado = vendas_df.copy()
+        
+        # Filtro por ano - verifica se é lista não vazia
+        if filtro_ano and isinstance(filtro_ano, list) and len(filtro_ano) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro ano: {filtro_ano}")
+            df_filtrado = df_filtrado[df_filtrado['data'].dt.year.isin(filtro_ano)]
+            
+        # Filtro por mês - verifica se é lista não vazia
+        if filtro_mes and isinstance(filtro_mes, list) and len(filtro_mes) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro mes: {filtro_mes}")
+            df_filtrado = df_filtrado[df_filtrado['data'].dt.month.isin(filtro_mes)]
+            
+        # Filtro por cliente - verifica se é lista não vazia
+        if filtro_cliente and isinstance(filtro_cliente, list) and len(filtro_cliente) > 0 and 'cod_cliente' in df_filtrado.columns:
+            print(f"   Aplicando filtro cliente: {filtro_cliente}")
+            df_filtrado = df_filtrado[df_filtrado['cod_cliente'].isin(filtro_cliente)]
+        
+        faturamento_valor = df_filtrado['vlr_rol'].sum() if 'vlr_rol' in df_filtrado.columns else 0
+        print(f"💰 KPI Faturamento calculado: {faturamento_valor:,.0f} (de {len(df_filtrado)} registros)")
+        return f"R$ {faturamento_valor:,.0f}"
+        
+    except Exception as e:
+        print(f"❌ Erro em update_kpi_faturamento: {e}")
+        return "Erro"
+
+# Callback para gráfico de evolução
+@app.callback(
+    Output('grafico-evolucao-vendas', 'figure'),
+    [Input('global-filtro-ano', 'value'),
+     Input('global-filtro-mes', 'value'),
+     Input('global-filtro-cliente', 'value'),
+     Input('url', 'pathname')],
+    prevent_initial_call=False
+)
+def update_grafico_evolucao(filtro_ano, filtro_mes, filtro_cliente, pathname):
+    """Atualiza gráfico de evolução de vendas"""
+    print(f"🔄 UPDATE_GRAFICO_EVOLUCAO executado - pathname: {pathname}")
+    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
+    
+    if pathname not in ['/', '/app', '/app/', '/app/overview']:
+        import plotly.graph_objects as go
+        return go.Figure()
+    
+    try:
+        vendas_df = load_vendas_data()
+        if vendas_df.empty:
+            import plotly.graph_objects as go
+            return go.Figure()
+            
+        # Aplica filtros (só se tiver valores válidos)
+        df_filtrado = vendas_df.copy()
+        
+        # Filtro por ano - verifica se é lista não vazia
+        if filtro_ano and isinstance(filtro_ano, list) and len(filtro_ano) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro ano: {filtro_ano}")
+            df_filtrado = df_filtrado[df_filtrado['data'].dt.year.isin(filtro_ano)]
+            
+        # Filtro por mês - verifica se é lista não vazia
+        if filtro_mes and isinstance(filtro_mes, list) and len(filtro_mes) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro mes: {filtro_mes}")
+            df_filtrado = df_filtrado[df_filtrado['data'].dt.month.isin(filtro_mes)]
+            
+        # Filtro por cliente - verifica se é lista não vazia
+        if filtro_cliente and isinstance(filtro_cliente, list) and len(filtro_cliente) > 0 and 'cod_cliente' in df_filtrado.columns:
+            print(f"   Aplicando filtro cliente: {filtro_cliente}")
+            df_filtrado = df_filtrado[df_filtrado['cod_cliente'].isin(filtro_cliente)]
+        
+        # Gráfico de evolução
+        import plotly.graph_objects as go
+        fig_vendas = go.Figure()
+        if not df_filtrado.empty and 'data' in df_filtrado.columns:
+            vendas_mes = df_filtrado.groupby(df_filtrado['data'].dt.strftime('%Y-%m'))['vlr_rol'].sum().sort_index()
+            fig_vendas.add_trace(go.Scatter(
+                x=vendas_mes.index, 
+                y=vendas_mes.values,
+                mode='lines+markers',
+                name='Vendas',
+                line=dict(color='#007bff', width=3),
+                marker=dict(size=8)
+            ))
+            fig_vendas.update_layout(
+                title="Evolução de Vendas",
+                xaxis_title="Período",
+                yaxis_title="Valor (R$)",
+                template="plotly_white",
+                height=400
+            )
+        
+        print(f"📈 Gráfico de evolução criado com {len(vendas_mes) if 'vendas_mes' in locals() else 0} pontos (de {len(df_filtrado)} registros)")
+        return fig_vendas
+        
+    except Exception as e:
+        print(f"❌ Erro em update_grafico_evolucao: {e}")
+        import plotly.graph_objects as go
+        return go.Figure()
+
+# Callback para KPIs por Unidade de Negócio
+@app.callback(
+    Output('kpis-unidades-negocio', 'children'),
+    [Input('global-filtro-ano', 'value'),
+     Input('global-filtro-mes', 'value'),
+     Input('global-filtro-cliente', 'value'),
+     Input('url', 'pathname')],
+    prevent_initial_call=False
+)
+def update_kpis_unidades_negocio(filtro_ano, filtro_mes, filtro_cliente, pathname):
+    """Atualiza KPIs por Unidade de Negócio"""
+    print(f"🔄 UPDATE_KPIS_UNIDADES_NEGOCIO executado - pathname: {pathname}")
+    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
+    
+    if pathname not in ['/', '/app', '/app/', '/app/overview']:
+        return []
+    
+    try:
+        vendas_df = load_vendas_data()
+        if vendas_df.empty:
+            return []
+            
+        # Aplica filtros (só se tiver valores válidos)
+        df_filtrado = vendas_df.copy()
+        
+        # Filtro por ano - verifica se é lista não vazia
+        if filtro_ano and isinstance(filtro_ano, list) and len(filtro_ano) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro ano: {filtro_ano}")
+            df_filtrado = df_filtrado[df_filtrado['data'].dt.year.isin(filtro_ano)]
+            
+        # Filtro por mês - verifica se é lista não vazia
+        if filtro_mes and isinstance(filtro_mes, list) and len(filtro_mes) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro mes: {filtro_mes}")
+            df_filtrado = df_filtrado[df_filtrado['data'].dt.month.isin(filtro_mes)]
+            
+        # Filtro por cliente - verifica se é lista não vazia
+        if filtro_cliente and isinstance(filtro_cliente, list) and len(filtro_cliente) > 0 and 'cod_cliente' in df_filtrado.columns:
+            print(f"   Aplicando filtro cliente: {filtro_cliente}")
+            df_filtrado = df_filtrado[df_filtrado['cod_cliente'].isin(filtro_cliente)]
+        
+        # KPIs por Unidade de Negócio
+        kpis_un = []
+        if not df_filtrado.empty and 'unidade_negocio' in df_filtrado.columns:
+            un_stats = df_filtrado.groupby('unidade_negocio')['vlr_rol'].sum().sort_values(ascending=False)
+            
+            import dash_bootstrap_components as dbc
+            for un, valor in un_stats.head(6).items():
+                kpi_card = dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H6(f"R$ {valor:,.0f}", className="card-title text-primary"),
+                            html.P(str(un), className="card-text small")
+                        ])
+                    ], className="text-center h-100")
+                ], width=12, md=2)
+                kpis_un.append(kpi_card)
+        
+        print(f"🏢 KPIs por Unidade de Negócio criados: {len(kpis_un)} cards (de {len(df_filtrado)} registros)")
+        return kpis_un
+        
+    except Exception as e:
+        print(f"❌ Erro em update_kpis_unidades_negocio: {e}")
+        return []
     """Atualiza KPIs da Overview baseado nos filtros aplicados"""
-    print(f"🔄 Atualizando KPIs Overview - Filtros recebidos:")
+    print(f"🔄 UPDATE_OVERVIEW_KPIS EXECUTADO!")
+    print(f"   pathname: {pathname}")
     print(f"   ano={filtro_ano} (tipo: {type(filtro_ano)})")
     print(f"   mes={filtro_mes} (tipo: {type(filtro_mes)})")
     print(f"   cliente={filtro_cliente} (tipo: {type(filtro_cliente)})")
     print(f"   hierarquia={filtro_hierarquia} (tipo: {type(filtro_hierarquia)})")
     print(f"   canal={filtro_canal} (tipo: {type(filtro_canal)})")
-    print(f"   pathname={pathname}")
+    
+    # Só executa se estiver na página Overview
+    if pathname and pathname not in ['/', '/app', '/app/', '/app/overview']:
+        print(f"❌ Não é página Overview: {pathname} - retornando valores vazios")
+        import plotly.graph_objects as go
+        empty_fig = go.Figure()
+        return "R$ 0", "R$ 0", "R$ 0", [], empty_fig
     
     try:
         # Carrega dados
@@ -815,7 +1090,8 @@ def update_data_statistics(pathname, clear_status):
 )
 def update_clients_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, pathname):
     """Atualiza tabela de KPIs por cliente"""
-    print(f"🔄 update_clients_table - Filtros aplicados: ano={filtro_ano}, cliente={filtro_cliente}")
+    print(f"🔄 UPDATE_CLIENTS_TABLE executado - pathname: {pathname}")
+    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
     
     try:
         # Só processa se estiver na página de clientes
@@ -824,20 +1100,27 @@ def update_clients_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarqu
             return []
             
         vendas_df = load_vendas_data()
-        cotacoes_df = load_cotacoes_data()
         
         if vendas_df.empty:
             print("❌ Dados de vendas vazios")
             return []
         
-        # Aplica filtros
+        # Aplica filtros (só se tiver valores válidos)
         df_filtrado = vendas_df.copy()
         
-        if filtro_ano and 'data' in df_filtrado.columns:
+        # Filtro por ano - verifica se é lista não vazia
+        if filtro_ano and isinstance(filtro_ano, list) and len(filtro_ano) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro ano: {filtro_ano}")
             df_filtrado = df_filtrado[df_filtrado['data'].dt.year.isin(filtro_ano)]
-        if filtro_mes and 'data' in df_filtrado.columns:
+            
+        # Filtro por mês - verifica se é lista não vazia
+        if filtro_mes and isinstance(filtro_mes, list) and len(filtro_mes) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro mes: {filtro_mes}")
             df_filtrado = df_filtrado[df_filtrado['data'].dt.month.isin(filtro_mes)]
-        if filtro_cliente and 'cod_cliente' in df_filtrado.columns:
+            
+        # Filtro por cliente - verifica se é lista não vazia
+        if filtro_cliente and isinstance(filtro_cliente, list) and len(filtro_cliente) > 0 and 'cod_cliente' in df_filtrado.columns:
+            print(f"   Aplicando filtro cliente: {filtro_cliente}")
             df_filtrado = df_filtrado[df_filtrado['cod_cliente'].isin(filtro_cliente)]
         
         # Cria tabela de clientes
@@ -896,7 +1179,8 @@ def update_clients_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarqu
 )
 def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, pathname):
     """Atualiza gráficos da página de produtos"""
-    print(f"🔄 update_products_charts - pathname: {pathname}")
+    print(f"🔄 UPDATE_PRODUCTS_CHARTS executado - pathname: {pathname}")
+    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
     
     try:
         import plotly.graph_objects as go
@@ -913,10 +1197,23 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
             print("❌ Dados de vendas vazios")
             return go.Figure(), go.Figure()
         
-        # Aplica filtros
+        # Aplica filtros (só se tiver valores válidos)
         df_filtrado = vendas_df.copy()
         
-        if filtro_ano and 'data' in df_filtrado.columns:
+        # Filtro por ano - verifica se é lista não vazia
+        if filtro_ano and isinstance(filtro_ano, list) and len(filtro_ano) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro ano: {filtro_ano}")
+            df_filtrado = df_filtrado[df_filtrado['data'].dt.year.isin(filtro_ano)]
+            
+        # Filtro por mês - verifica se é lista não vazia
+        if filtro_mes and isinstance(filtro_mes, list) and len(filtro_mes) > 0 and 'data' in df_filtrado.columns:
+            print(f"   Aplicando filtro mes: {filtro_mes}")
+            df_filtrado = df_filtrado[df_filtrado['data'].dt.month.isin(filtro_mes)]
+            
+        # Filtro por cliente - verifica se é lista não vazia
+        if filtro_cliente and isinstance(filtro_cliente, list) and len(filtro_cliente) > 0 and 'cod_cliente' in df_filtrado.columns:
+            print(f"   Aplicando filtro cliente: {filtro_cliente}")
+            df_filtrado = df_filtrado[df_filtrado['cod_cliente'].isin(filtro_cliente)]
             df_filtrado = df_filtrado[df_filtrado['data'].dt.year.isin(filtro_ano)]
         if filtro_mes and 'data' in df_filtrado.columns:
             df_filtrado = df_filtrado[df_filtrado['data'].dt.month.isin(filtro_mes)]

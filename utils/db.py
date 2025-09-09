@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 import json
 from typing import Optional, Dict, Any, List
+from .data_standardization import apply_vendas_standardization, apply_cotacoes_standardization
 
 # Configuração do banco
 DB_PATH = Path(__file__).parent.parent / "instance" / "database.sqlite"
@@ -482,6 +483,10 @@ def load_vendas_data(dataset_id: Optional[int] = None) -> pd.DataFrame:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
     
+    # Aplica padronizações antes de retornar os dados
+    if not df.empty:
+        df = apply_vendas_standardization(df)
+    
     return df
 
 def load_cotacoes_data(dataset_id: Optional[int] = None) -> pd.DataFrame:
@@ -501,6 +506,10 @@ def load_cotacoes_data(dataset_id: Optional[int] = None) -> pd.DataFrame:
     # Converte coluna de data
     if not df.empty and 'data' in df.columns:
         df['data'] = pd.to_datetime(df['data'], errors='coerce')
+    
+    # Aplica padronizações antes de retornar os dados
+    if not df.empty:
+        df = apply_cotacoes_standardization(df)
     
     return df
 

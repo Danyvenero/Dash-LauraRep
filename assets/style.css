@@ -127,6 +127,372 @@ body {
     min-width: 200px;
 }
 
+/* Estilos para Dropdown/Select do Dash */
+.Select-control {
+    border: 2px solid #e9ecef !important;
+    border-radius: 6px !important;
+    box-shadow: none !important;
+    background-color: white !important;
+}
+
+.Select-control:hover {
+    border-color: var(--weg-light-blue) !important;
+}
+
+.is-focused .Select-control {
+    border-color: var(--weg-blue) !important;
+    box-shadow: 0 0 0 0.2rem rgba(0, 51, 102, 0.25) !important;
+}
+
+/* ESTILOS SUPER ESPECÍFICOS PARA RESOLVER O PROBLEMA DA FONTE CLARA */
+
+/* Para TODOS os tipos de dropdown - força máxima */
+.Select-menu,
+.Select-menu-outer,
+.dropdown-menu,
+.dash-dropdown .Select-menu,
+._dash-dropdown .Select-menu,
+div[data-dash-is-loading="true"] + div .Select-menu,
+div[data-dash-is-loading="false"] + div .Select-menu {
+    background-color: white !important;
+    border: 1px solid var(--weg-blue) !important;
+    border-radius: 6px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    z-index: 9999 !important;
+}
+
+/* Para TODAS as opções individuais - força máxima */
+.Select-option,
+.dropdown-item,
+.dash-dropdown .Select-option,
+._dash-dropdown .Select-option,
+div[role="option"],
+li[role="option"],
+[class*="option"],
+[class*="Option"],
+.Select-menu .Select-option,
+.Select-menu-outer .Select-option,
+div[data-dash-is-loading="true"] + div .Select-option,
+div[data-dash-is-loading="false"] + div .Select-option {
+    background-color: white !important;
+    color: #000000 !important; /* Preto total para máximo contraste */
+    padding: 10px 12px !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    border-bottom: 1px solid #f0f0f0 !important;
+    cursor: pointer !important;
+    display: block !important;
+    text-decoration: none !important;
+}
+
+/* Estados hover/focus - força máxima */
+.Select-option:hover,
+.Select-option.is-focused,
+.dropdown-item:hover,
+.dash-dropdown .Select-option:hover,
+._dash-dropdown .Select-option:hover,
+div[role="option"]:hover,
+li[role="option"]:hover,
+[class*="option"]:hover,
+[class*="Option"]:hover,
+.Select-menu .Select-option:hover,
+.Select-menu-outer .Select-option:hover,
+div[data-dash-is-loading="true"] + div .Select-option:hover,
+div[data-dash-is-loading="false"] + div .Select-option:hover {
+    background-color: var(--weg-light-blue) !important;
+    color: white !important;
+    font-weight: 600 !important;
+}
+
+/* Estados selecionados - força máxima */
+.Select-option.is-selected,
+.dropdown-item[aria-selected="true"],
+.dash-dropdown .Select-option.is-selected,
+._dash-dropdown .Select-option.is-selected,
+div[role="option"][aria-selected="true"],
+li[role="option"][aria-selected="true"],
+[class*="option"][aria-selected="true"],
+[class*="Option"][aria-selected="true"],
+.Select-menu .Select-option.is-selected,
+.Select-menu-outer .Select-option.is-selected {
+    background-color: var(--weg-blue) !important;
+    color: white !important;
+    font-weight: 700 !important;
+}
+
+/* Estilos para IDs específicos dos filtros */
+#global-filtro-cliente .Select-menu,
+#global-filtro-cliente .Select-menu-outer,
+#global-filtro-hierarquia .Select-menu,
+#global-filtro-hierarquia .Select-menu-outer,
+#global-filtro-canal .Select-menu,
+#global-filtro-canal .Select-menu-outer {
+    background-color: white !important;
+    border: 2px solid var(--weg-blue) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2) !important;
+    z-index: 99999 !important;
+}
+
+#global-filtro-cliente .Select-option,
+#global-filtro-hierarquia .Select-option,
+#global-filtro-canal .Select-option {
+    background-color: white !important;
+    color: #000000 !important; /* Preto sólido */
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    padding: 12px 15px !important;
+    border-bottom: 1px solid #e9ecef !important;
+}
+
+#global-filtro-cliente .Select-option:hover,
+#global-filtro-hierarquia .Select-option:hover,
+#global-filtro-canal .Select-option:hover {
+    background-color: var(--weg-light-blue) !important;
+    color: white !important;
+    font-weight: 700 !important;
+}
+
+/* FORÇA MÁXIMA PARA O DROPDOWN DE CLIENTE ESPECIFICAMENTE */
+#global-filtro-cliente,
+#global-filtro-cliente *,
+#global-filtro-cliente .Select-menu,
+#global-filtro-cliente .Select-menu *,
+#global-filtro-cliente .Select-menu-outer,
+#global-filtro-cliente .Select-menu-outer *,
+#global-filtro-cliente .Select-option,
+#global-filtro-cliente .Select-option *,
+#global-filtro-cliente [role="option"],
+#global-filtro-cliente [role="option"] *,
+#global-filtro-cliente [class*="option"],
+#global-filtro-cliente [class*="option"] * {
+    color: #000000 !important;
+    background-color: white !important;
+}
+
+#global-filtro-cliente .Select-option:hover,
+#global-filtro-cliente .Select-option:hover *,
+#global-filtro-cliente [role="option"]:hover,
+#global-filtro-cliente [role="option"]:hover *,
+#global-filtro-cliente [class*="option"]:hover,
+#global-filtro-cliente [class*="option"]:hover * {
+    background-color: var(--weg-light-blue) !important;
+    color: white !important;
+}
+
+/* CSS SUPER ESPECÍFICO PARA CLASSES GERADAS PELO DASH */
+[id="global-filtro-cliente"] .Select-menu div,
+[id="global-filtro-cliente"] .Select-menu span,
+[id="global-filtro-cliente"] .Select-menu p,
+[id="global-filtro-cliente"] .Select-menu text,
+[id="global-filtro-cliente"] .Select-menu-outer div,
+[id="global-filtro-cliente"] .Select-menu-outer span,
+[id="global-filtro-cliente"] .Select-menu-outer p,
+[id="global-filtro-cliente"] .Select-menu-outer text {
+    color: #000000 !important;
+    background-color: white !important;
+    font-weight: 600 !important;
+    text-shadow: none !important;
+}
+
+/* Força para todos os elementos de texto dentro de dropdowns */
+.Select-menu div[class*="Text"],
+.Select-menu span[class*="Text"],
+.Select-menu div[class*="text"],
+.Select-menu span[class*="text"],
+.Select-option div,
+.Select-option span,
+[role="option"] div,
+[role="option"] span {
+    color: #000000 !important;
+    background-color: transparent !important;
+}
+
+/* Força ainda maior para casos específicos */
+div[id*="filtro"] .Select-menu div,
+div[id*="filtro"] .Select-menu-outer div,
+div[class*="Select-menu"] div,
+div[class*="dropdown"] div {
+    color: #000000 !important;
+    background-color: white !important;
+}
+
+/* FORÇA BRUTAL - CSS Universal para TODOS os elementos de dropdown */
+* {
+    /* Aplica a todos os elementos dentro de dropdowns */
+}
+
+/* Seletores universais super específicos */
+.Select-menu * {
+    color: #000000 !important;
+}
+
+.Select-menu-outer * {
+    color: #000000 !important;
+}
+
+/* Força para qualquer elemento que contenha texto em dropdowns */
+[class*="Select"] [class*="option"] *,
+[class*="Select"] [role="option"] *,
+[class*="dropdown"] [class*="option"] *,
+[class*="dropdown"] [role="option"] * {
+    color: #000000 !important;
+    background-color: white !important;
+}
+
+/* CSS para sobrescrever estilos inline */
+.Select-option[style*="color"] {
+    color: #000000 !important;
+}
+
+.Select-menu [style*="color"] {
+    color: #000000 !important;
+}
+
+/* Força através de atributos data */
+[data-value] {
+    color: #000000 !important;
+}
+
+/* CSS para versões específicas do Dash */
+.dash-dropdown-content,
+.dash-dropdown-menu,
+._dash-dropdown-content,
+._dash-dropdown-menu {
+    background-color: white !important;
+    color: #000000 !important;
+}
+
+.dash-dropdown-content *,
+.dash-dropdown-menu *,
+._dash-dropdown-content *,
+._dash-dropdown-menu * {
+    color: #000000 !important;
+    background-color: white !important;
+}
+
+/* Força para span, div, texto dentro de opções */
+.Select-option span,
+.Select-option div,
+.Select-option p,
+.Select-option text,
+[role="option"] span,
+[role="option"] div,
+[role="option"] p,
+[role="option"] text {
+    color: #000000 !important;
+    background-color: transparent !important;
+}
+
+/* Placeholder do dropdown */
+.Select-placeholder {
+    color: #999999 !important;
+    font-style: italic !important;
+}
+
+/* Valor selecionado */
+.Select-value-label {
+    color: #333333 !important;
+    font-weight: 500 !important;
+}
+
+/* Seta do dropdown */
+.Select-arrow-zone {
+    color: var(--weg-blue) !important;
+}
+
+.Select-arrow {
+    border-color: var(--weg-blue) transparent transparent !important;
+}
+
+/* Multi-select (se usado) */
+.Select-multi-value-wrapper {
+    background-color: #f8f9fa !important;
+    border: 1px solid #e9ecef !important;
+    border-radius: 4px !important;
+    margin: 2px !important;
+    padding: 2px 6px !important;
+}
+
+.Select-value {
+    background-color: var(--weg-gray) !important;
+    border: 1px solid #e9ecef !important;
+    border-radius: 4px !important;
+    color: #333333 !important;
+}
+
+/* Estilos para componentes dcc.Dropdown mais recentes */
+.dash-dropdown .Select-control,
+.dash-dropdown .dropdown,
+._dash-dropdown .Select-control {
+    border: 2px solid #e9ecef !important;
+    border-radius: 6px !important;
+    background-color: white !important;
+    min-height: 38px !important;
+}
+
+.dash-dropdown .Select-menu,
+.dash-dropdown .dropdown-menu,
+._dash-dropdown .Select-menu {
+    background-color: white !important;
+    border: 1px solid var(--weg-blue) !important;
+    border-radius: 6px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    max-height: 200px !important;
+    overflow-y: auto !important;
+    z-index: 9999 !important;
+}
+
+.dash-dropdown .Select-option,
+.dash-dropdown .dropdown-item,
+._dash-dropdown .Select-option {
+    background-color: white !important;
+    color: #333333 !important;
+    padding: 8px 12px !important;
+    font-size: 14px !important;
+    cursor: pointer !important;
+    border: none !important;
+}
+
+.dash-dropdown .Select-option:hover,
+.dash-dropdown .dropdown-item:hover,
+._dash-dropdown .Select-option:hover,
+.dash-dropdown .Select-option.is-focused,
+._dash-dropdown .Select-option.is-focused {
+    background-color: var(--weg-light-blue) !important;
+    color: white !important;
+}
+
+.dash-dropdown .Select-option.is-selected,
+._dash-dropdown .Select-option.is-selected {
+    background-color: var(--weg-blue) !important;
+    color: white !important;
+    font-weight: 600 !important;
+}
+
+/* Estilos para Range Slider */
+.rc-slider {
+    margin: 20px 0 !important;
+}
+
+.rc-slider-track {
+    background-color: var(--weg-blue) !important;
+}
+
+.rc-slider-handle {
+    border: 2px solid var(--weg-blue) !important;
+    background-color: white !important;
+}
+
+.rc-slider-handle:hover {
+    border-color: var(--weg-light-blue) !important;
+}
+
+.rc-slider-handle.rc-slider-handle-dragging {
+    border-color: var(--weg-light-blue) !important;
+    box-shadow: 0 0 0 5px rgba(0, 51, 102, 0.2) !important;
+}
+
 /* Botões */
 .btn-weg {
     background-color: var(--weg-blue);
@@ -266,6 +632,88 @@ body {
 
 .fade-in {
     animation: fadeIn 0.5s ease-out;
+}
+
+/* Estilos adicionais para dropdowns modernos do Dash */
+/* Para versões mais recentes do dcc.Dropdown */
+.dropdown .dropdown-content {
+    background-color: white !important;
+    border: 1px solid var(--weg-blue) !important;
+    border-radius: 6px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+    max-height: 250px !important;
+    overflow-y: auto !important;
+    z-index: 9999 !important;
+}
+
+.dropdown .dropdown-content .dropdown-option {
+    background-color: white !important;
+    color: #333333 !important;
+    padding: 10px 12px !important;
+    font-size: 14px !important;
+    line-height: 1.4 !important;
+    cursor: pointer !important;
+    border: none !important;
+    display: block !important;
+    width: 100% !important;
+    text-align: left !important;
+}
+
+.dropdown .dropdown-content .dropdown-option:hover {
+    background-color: var(--weg-light-blue) !important;
+    color: white !important;
+}
+
+.dropdown .dropdown-content .dropdown-option[aria-selected="true"] {
+    background-color: var(--weg-blue) !important;
+    color: white !important;
+    font-weight: 600 !important;
+}
+
+/* Para componentes com ID específico - Força maior especificidade */
+#dropdown-cliente .Select-menu,
+#dropdown-hierarquia .Select-menu,
+#dropdown-canal .Select-menu {
+    background-color: white !important;
+    border: 1px solid var(--weg-blue) !important;
+    z-index: 9999 !important;
+}
+
+#dropdown-cliente .Select-option,
+#dropdown-hierarquia .Select-option,
+#dropdown-canal .Select-option {
+    background-color: white !important;
+    color: #333333 !important;
+    font-weight: 500 !important;
+}
+
+#dropdown-cliente .Select-option:hover,
+#dropdown-hierarquia .Select-option:hover,
+#dropdown-canal .Select-option:hover {
+    background-color: var(--weg-light-blue) !important;
+    color: white !important;
+}
+
+/* Força estilos para qualquer dropdown com texto claro */
+div[role="listbox"] {
+    background-color: white !important;
+    border: 1px solid var(--weg-blue) !important;
+    border-radius: 6px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+}
+
+div[role="option"] {
+    background-color: white !important;
+    color: #333333 !important;
+    padding: 8px 12px !important;
+    font-size: 14px !important;
+    cursor: pointer !important;
+}
+
+div[role="option"]:hover,
+div[role="option"][aria-selected="true"] {
+    background-color: var(--weg-light-blue) !important;
+    color: white !important;
 }
 
 /* Status indicators */
