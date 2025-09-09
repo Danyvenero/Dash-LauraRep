@@ -42,85 +42,135 @@ class DataLoader:
     
     def normalize_vendas_data(self, df: pd.DataFrame) -> pd.DataFrame:
         """Normaliza dados de vendas"""
+        # Debug: mostra informações sobre o DataFrame de entrada
+        print(f"🔍 DEBUG normalize_vendas_data - Colunas: {list(df.columns)}")
+        print(f"🔍 DEBUG normalize_vendas_data - Shape: {df.shape}")
+        print(f"🔍 DEBUG normalize_vendas_data - Primeiras 2 linhas:\n{df.head(2)}")
+        
         df_norm = df.copy()
         
         # Mapeamento de colunas conhecidas
         column_mapping = {
             'id_cli': 'cod_cliente',
+            'ID_Cli': 'cod_cliente',  # Variação com maiúsculas
             'código cliente': 'cod_cliente',
             'codigo_cliente': 'cod_cliente',
             'cod cliente': 'cod_cliente',
+            'cod. cliente': 'cod_cliente',
+            'Cod. Cliente': 'cod_cliente',
             'doc. vendas': 'cod_cliente',  # Adicionado mapeamento para Doc. Vendas
             'doc vendas': 'cod_cliente',
             'documento vendas': 'cod_cliente',
+            'Doc. Vendas': 'cod_cliente',  # Variação com maiúsculas
             'cliente': 'cliente',
+            'Cliente': 'cliente',  # Variação com maiúsculas
             'material': 'material',
+            'Material': 'material',  # Variação com maiúsculas
             'produto': 'produto',
+            'Produto': 'produto',  # Variação com maiúsculas
             'unidade de negócio': 'unidade_negocio',
+            'Unidade de Negócio': 'unidade_negocio',  # Variação com maiúsculas
             'unidade_negocio': 'unidade_negocio',
             'canal distribuição': 'canal_distribuicao',
+            'Canal Distribuição': 'canal_distribuicao',  # Variação com maiúsculas
             'canal_distribuicao': 'canal_distribuicao',
             'hier. produto 1': 'hier_produto_1',
+            'Hier. Produto 1': 'hier_produto_1',  # Variação com maiúsculas
             'hier produto 1': 'hier_produto_1',
             'hier_produto_1': 'hier_produto_1',
             'hier. produto 2': 'hier_produto_2',
+            'Hier. Produto 2': 'hier_produto_2',  # Variação com maiúsculas
             'hier produto 2': 'hier_produto_2',
             'hier_produto_2': 'hier_produto_2',
             'hier. produto 3': 'hier_produto_3',
+            'Hier. Produto 3': 'hier_produto_3',  # Variação com maiúsculas
             'hier produto 3': 'hier_produto_3',
             'hier_produto_3': 'hier_produto_3',
             'data': 'data',
+            'Data': 'data',  # Variação com maiúsculas
             'data faturamento': 'data_faturamento',
+            'Data Faturamento': 'data_faturamento',  # Variação com maiúsculas
             'data_faturamento': 'data_faturamento',
             'qtd entrada': 'qtd_entrada',
+            'Qtd. Entrada': 'qtd_entrada',  # Variação com maiúsculas e ponto
             'qtd_entrada': 'qtd_entrada',
             'vlr entrada': 'vlr_entrada',
+            'Vlr. Entrada': 'vlr_entrada',  # Variação com maiúsculas e ponto
             'vlr_entrada': 'vlr_entrada',
             'qtd carteira': 'qtd_carteira',
+            'Qtd. Carteira': 'qtd_carteira',  # Variação com maiúsculas e ponto
             'qtd_carteira': 'qtd_carteira',
             'vlr carteira': 'vlr_carteira',
+            'Vlr. Carteira': 'vlr_carteira',  # Variação com maiúsculas e ponto
             'vlr_carteira': 'vlr_carteira',
             'qtd rol': 'qtd_rol',
+            'Qtd. ROL': 'qtd_rol',  # Variação com maiúsculas e ponto
             'qtd_rol': 'qtd_rol',
             'vlr rol': 'vlr_rol',
+            'Vlr. ROL': 'vlr_rol',  # Variação com maiúsculas e ponto
             'vlr_rol': 'vlr_rol'
         }
         
         # Aplica mapeamento de colunas
+        # Primeiro, cria um dicionário com mapeamento exato
+        columns_to_rename = {}
+        
         for old_col, new_col in column_mapping.items():
-            if old_col in df_norm.columns:
-                df_norm = df_norm.rename(columns={old_col: new_col})
-            elif old_col.lower() in [col.lower() for col in df_norm.columns]:
+            if old_col in df_norm.columns.tolist():
+                columns_to_rename[old_col] = new_col
+            else:
                 # Busca case-insensitive
-                for col in df_norm.columns:
+                for col in df_norm.columns.tolist():
                     if col.lower() == old_col.lower():
-                        df_norm = df_norm.rename(columns={col: new_col})
+                        columns_to_rename[col] = new_col
                         break
         
+        # Aplica o renomeamento em uma única operação
+        if columns_to_rename:
+            df_norm = df_norm.rename(columns=columns_to_rename)
+        
         # Normaliza códigos de cliente
-        if 'cod_cliente' in df_norm.columns:
-            df_norm['cod_cliente'] = df_norm['cod_cliente'].astype(str).str.strip()
+        if 'cod_cliente' in df_norm.columns.tolist():
+            try:
+                df_norm['cod_cliente'] = df_norm['cod_cliente'].astype(str).str.strip()
+            except (AttributeError, ValueError):
+                # Se falhar, converte de forma mais simples
+                df_norm['cod_cliente'] = df_norm['cod_cliente'].apply(lambda x: str(x).strip() if pd.notna(x) else '')
         
         # Normaliza materiais
-        if 'material' in df_norm.columns:
-            df_norm['material'] = pd.to_numeric(df_norm['material'], errors='coerce').fillna(0).astype(int).astype(str)
+        if 'material' in df_norm.columns.tolist():
+            try:
+                df_norm['material'] = pd.to_numeric(df_norm['material'], errors='coerce').fillna(0).astype(int).astype(str)
+            except (ValueError, TypeError):
+                # Se falhar, converte de forma mais simples
+                df_norm['material'] = df_norm['material'].apply(lambda x: str(int(float(x))) if pd.notna(x) and str(x).replace('.','').isdigit() else '0')
         
         # Normaliza datas
         for date_col in ['data', 'data_faturamento']:
-            if date_col in df_norm.columns:
-                df_norm[date_col] = pd.to_datetime(df_norm[date_col], errors='coerce')
+            if date_col in df_norm.columns.tolist():
+                try:
+                    df_norm[date_col] = pd.to_datetime(df_norm[date_col], errors='coerce')
+                except (ValueError, TypeError):
+                    # Se falhar, tenta conversão mais robusta
+                    df_norm[date_col] = df_norm[date_col].apply(lambda x: pd.to_datetime(x, errors='coerce') if pd.notna(x) else None)
         
         # Normaliza valores numéricos
         numeric_cols = ['qtd_entrada', 'vlr_entrada', 'qtd_carteira', 'vlr_carteira', 'qtd_rol', 'vlr_rol']
         for col in numeric_cols:
-            if col in df_norm.columns:
-                df_norm[col] = pd.to_numeric(df_norm[col], errors='coerce').fillna(0)
+            if col in df_norm.columns.tolist():
+                try:
+                    df_norm[col] = pd.to_numeric(df_norm[col], errors='coerce').fillna(0)
+                except (ValueError, TypeError):
+                    # Se falhar, tenta conversão mais robusta
+                    df_norm[col] = df_norm[col].apply(lambda x: float(x) if pd.notna(x) and str(x).replace('.','').replace(',','').replace('-','').isdigit() else 0.0)
         
         # Remove linhas com dados críticos faltando
         required_cols = ['cod_cliente', 'material']
         for col in required_cols:
-            if col in df_norm.columns:
-                df_norm = df_norm.dropna(subset=[col])
+            if col in df_norm.columns.tolist():
+                # Usa método mais explícito para evitar ambiguidade da Series
+                mask = df_norm[col].notna()
+                df_norm = df_norm[mask]
         
         # Mantém apenas colunas válidas do schema
         valid_columns = [
@@ -131,7 +181,7 @@ class DataLoader:
         ]
         
         # Filtra apenas colunas que existem tanto no DataFrame quanto no schema
-        columns_to_keep = [col for col in valid_columns if col in df_norm.columns]
+        columns_to_keep = [col for col in valid_columns if col in df_norm.columns.tolist()]
         df_norm = df_norm[columns_to_keep]
         
         return df_norm
@@ -140,49 +190,65 @@ class DataLoader:
         """Normaliza dados de cotações"""
         df_norm = df.copy()
         
-        # Mapeamento de colunas
+        # Mapeamento de colunas para cotações (estrutura otimizada)
         column_mapping = {
             'número da cotação': 'numero_cotacao',
             'numero da cotacao': 'numero_cotacao',
             'numero_cotacao': 'numero_cotacao',
             'cotação': 'numero_cotacao',
             'cotacao': 'numero_cotacao',
+            'número da revisão': 'numero_revisao',
+            'numero da revisao': 'numero_revisao',
+            'numero_revisao': 'numero_revisao',
+            'revisão': 'numero_revisao',
+            'revisao': 'numero_revisao',
+            'linhas de cotação': 'linhas_cotacao',
+            'linhas da cotacao': 'linhas_cotacao',
+            'linhas_cotacao': 'linhas_cotacao',
+            'linhas cotacao': 'linhas_cotacao',
+            'status da cotação': 'status_cotacao',
+            'status da cotacao': 'status_cotacao',
+            'status_cotacao': 'status_cotacao',
+            'status cotacao': 'status_cotacao',
+            'status': 'status_cotacao',
             'id_cli': 'cod_cliente',
             'código cliente': 'cod_cliente',
             'codigo_cliente': 'cod_cliente',
             'cod cliente': 'cod_cliente',
+            'cod. cliente': 'cod_cliente',
+            'Cod. Cliente': 'cod_cliente',
+            'código do cliente': 'cod_cliente',
+            'codigo do cliente': 'cod_cliente',
             'cliente': 'cliente',
-            'material': 'material',
-            'data': 'data',
-            'quantidade': 'quantidade',
-            'qtd': 'quantidade'
+            'data': 'data'
         }
         
         # Aplica mapeamento
         for old_col, new_col in column_mapping.items():
-            for col in df_norm.columns:
+            for col in df_norm.columns.tolist():
                 if col.lower() == old_col.lower():
                     df_norm = df_norm.rename(columns={col: new_col})
                     break
         
         # Normaliza dados
-        if 'cod_cliente' in df_norm.columns:
+        if 'cod_cliente' in df_norm.columns.tolist():
             df_norm['cod_cliente'] = df_norm['cod_cliente'].astype(str).str.strip()
         
-        if 'material' in df_norm.columns:
+        if 'material' in df_norm.columns.tolist():
             df_norm['material'] = pd.to_numeric(df_norm['material'], errors='coerce').fillna(0).astype(int).astype(str)
         
-        if 'data' in df_norm.columns:
+        if 'data' in df_norm.columns.tolist():
             df_norm['data'] = pd.to_datetime(df_norm['data'], errors='coerce')
         
-        if 'quantidade' in df_norm.columns:
+        if 'quantidade' in df_norm.columns.tolist():
             df_norm['quantidade'] = pd.to_numeric(df_norm['quantidade'], errors='coerce').fillna(0)
         
         # Remove linhas críticas faltando
         required_cols = ['numero_cotacao', 'cod_cliente', 'material']
         for col in required_cols:
-            if col in df_norm.columns:
-                df_norm = df_norm.dropna(subset=[col])
+            if col in df_norm.columns.tolist():
+                mask = df_norm[col].notna()
+                df_norm = df_norm[mask]
         
         return df_norm
     
@@ -194,50 +260,89 @@ class DataLoader:
         column_mapping = {
             'cotação': 'cotacao',
             'cotacao': 'cotacao',
+            'número da cotação': 'cotacao',
+            'numero da cotacao': 'cotacao',
+            'numero_cotacao': 'cotacao',
             'id_cli': 'cod_cliente',
             'código cliente': 'cod_cliente',
             'codigo_cliente': 'cod_cliente',
             'cod cliente': 'cod_cliente',
+            'cod. cliente': 'cod_cliente',
+            'Cod. Cliente': 'cod_cliente',
+            'código do cliente': 'cod_cliente',
+            'codigo do cliente': 'cod_cliente',
             'cliente': 'cliente',
             'centro fornecedor': 'centro_fornecedor',
             'centro_fornecedor': 'centro_fornecedor',
+            'centro de fornecedor': 'centro_fornecedor',
             'material': 'material',
+            'código material': 'material',
+            'codigo_material': 'material',
+            'cod_material': 'material',
             'descrição': 'descricao',
             'descricao': 'descricao',
+            'descrição do material': 'descricao',
+            'descricao do material': 'descricao',
+            'desc_material': 'descricao',
             'quantidade': 'quantidade',
             'qtd': 'quantidade',
+            'qty': 'quantidade',
             'preço líquido unitário': 'preco_liquido_unitario',
             'preco liquido unitario': 'preco_liquido_unitario',
             'preço_liquido_unitario': 'preco_liquido_unitario',
+            'preco_unit': 'preco_liquido_unitario',
+            'valor unitário': 'preco_liquido_unitario',
+            'valor_unitario': 'preco_liquido_unitario',
             'preço líquido total': 'preco_liquido_total',
             'preco liquido total': 'preco_liquido_total',
-            'preço_liquido_total': 'preco_liquido_total'
+            'preço_liquido_total': 'preco_liquido_total',
+            'valor total': 'preco_liquido_total',
+            'valor_total': 'preco_liquido_total',
+            'total': 'preco_liquido_total'
         }
         
         # Aplica mapeamento
         for old_col, new_col in column_mapping.items():
-            for col in df_norm.columns:
+            for col in df_norm.columns.tolist():
                 if col.lower() == old_col.lower():
                     df_norm = df_norm.rename(columns={col: new_col})
                     break
         
         # Normaliza dados
-        if 'cod_cliente' in df_norm.columns:
+        if 'cod_cliente' in df_norm.columns.tolist():
+            # Trata valores None, NaN, vazios antes de converter para string
+            df_norm['cod_cliente'] = df_norm['cod_cliente'].replace(['', 'None', 'none', 'NONE'], pd.NA)
             df_norm['cod_cliente'] = df_norm['cod_cliente'].astype(str).str.strip()
+            # Reconverte 'nan' para None
+            df_norm['cod_cliente'] = df_norm['cod_cliente'].replace(['nan', 'NaN', 'NAN'], None)
         
-        if 'material' in df_norm.columns:
+        if 'material' in df_norm.columns.tolist():
+            # Trata valores None/vazios antes de converter
+            df_norm['material'] = df_norm['material'].replace(['', 'None', 'none', 'NONE'], pd.NA)
             df_norm['material'] = pd.to_numeric(df_norm['material'], errors='coerce').fillna(0).astype(int).astype(str)
         
         numeric_cols = ['quantidade', 'preco_liquido_unitario', 'preco_liquido_total']
         for col in numeric_cols:
-            if col in df_norm.columns:
+            if col in df_norm.columns.tolist():
                 df_norm[col] = pd.to_numeric(df_norm[col], errors='coerce').fillna(0)
+        
+        # Normaliza campos de texto
+        text_cols = ['cotacao', 'centro_fornecedor', 'descricao', 'cliente']
+        for col in text_cols:
+            if col in df_norm.columns.tolist():
+                # Trata valores None/vazios antes de converter
+                df_norm[col] = df_norm[col].replace(['', 'None', 'none', 'NONE'], pd.NA)
+                df_norm[col] = df_norm[col].astype(str).str.strip()
+                # Reconverte 'nan' para None para campos não obrigatórios
+                if col not in ['cotacao']:  # cotacao é obrigatório
+                    df_norm[col] = df_norm[col].replace(['nan', 'NaN', 'NAN'], None)
         
         # Remove linhas críticas faltando
         required_cols = ['cotacao', 'cod_cliente', 'material']
         for col in required_cols:
-            if col in df_norm.columns:
-                df_norm = df_norm.dropna(subset=[col])
+            if col in df_norm.columns.tolist():
+                mask = df_norm[col].notna()
+                df_norm = df_norm[mask]
         
         return df_norm
     

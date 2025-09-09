@@ -8,6 +8,20 @@ from webapp import app, server
 from webapp.layouts import get_layout
 from dash import Input, Output, html
 
+# Database migration on startup
+def ensure_database_schema():
+    """Ensure database has correct schema before starting app"""
+    try:
+        from migrate_db import migrate_database
+        print("🔧 Checking database schema...")
+        migrate_database()
+        print("✅ Database schema verified")
+    except Exception as e:
+        print(f"⚠️  Database migration warning: {e}")
+
+# Run migration before imports to ensure schema is correct
+ensure_database_schema()
+
 # Importa callbacks
 import webapp.callbacks
 import webapp.auth
@@ -16,10 +30,11 @@ import webapp.auth
 @app.callback(
     Output('page-content', 'children'),
     [Input('url', 'pathname')],
-    prevent_initial_call=True
+    prevent_initial_call=False  # MUDANÇA: Permitir execução inicial
 )
 def display_page(pathname):
     """Controla roteamento e exibição de páginas"""
+    print(f"🔄 display_page executado para pathname: {pathname}")
     
     # Obtém layout da página
     layout = get_layout(pathname)
@@ -30,10 +45,11 @@ def display_page(pathname):
 @app.callback(
     Output('page-main-content', 'children'),
     [Input('url', 'pathname')],
-    prevent_initial_call=True
+    prevent_initial_call=False  # MUDANÇA: Permitir execução inicial
 )
 def display_main_content(pathname):
     """Exibe conteúdo principal baseado na página atual"""
+    print(f"🔄 display_main_content executado para pathname: {pathname}")
     from webapp.layouts import (
         create_overview_layout, 
         create_clients_layout, 

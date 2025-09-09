@@ -20,6 +20,10 @@ server.config.update(
     PERMANENT_SESSION_LIFETIME=3600  # 1 hora
 )
 
+# Registra comandos CLI personalizados
+from webapp import cli
+cli.init_app(server)
+
 # Inicialização da aplicação Dash
 app = dash.Dash(
     __name__,

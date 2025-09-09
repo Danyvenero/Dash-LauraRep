@@ -51,11 +51,12 @@ CREATE TABLE IF NOT EXISTS cotacoes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     dataset_id INTEGER,
     numero_cotacao TEXT,
+    numero_revisao TEXT,
+    linhas_cotacao TEXT,
+    status_cotacao TEXT,
     cod_cliente TEXT,
     cliente TEXT,
-    material TEXT,
     data DATE,
-    quantidade REAL,
     FOREIGN KEY (dataset_id) REFERENCES datasets (id)
 );
 
@@ -88,7 +89,6 @@ CREATE INDEX IF NOT EXISTS idx_vendas_data_faturamento ON vendas(data_faturament
 CREATE INDEX IF NOT EXISTS idx_vendas_unidade_negocio ON vendas(unidade_negocio);
 
 CREATE INDEX IF NOT EXISTS idx_cotacoes_cliente_data ON cotacoes(cod_cliente, data, numero_cotacao);
-CREATE INDEX IF NOT EXISTS idx_cotacoes_material ON cotacoes(material);
 CREATE INDEX IF NOT EXISTS idx_cotacoes_numero ON cotacoes(numero_cotacao);
 
 CREATE INDEX IF NOT EXISTS idx_produtos_cotados_cotacao ON produtos_cotados(cotacao);

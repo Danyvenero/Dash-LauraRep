@@ -78,11 +78,12 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             dataset_id INTEGER,
             numero_cotacao TEXT,
+            numero_revisao TEXT,
+            linhas_cotacao TEXT,
+            status_cotacao TEXT,
             cod_cliente TEXT,
             cliente TEXT,
-            material TEXT,
             data DATE,
-            quantidade REAL,
             FOREIGN KEY (dataset_id) REFERENCES datasets (id)
         )
     """)
@@ -117,7 +118,6 @@ def init_db():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_vendas_cliente_data ON vendas(cod_cliente, data)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_vendas_material ON vendas(material)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_cotacoes_cliente_data ON cotacoes(cod_cliente, data, numero_cotacao)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_cotacoes_material ON cotacoes(material)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_produtos_cotados_cotacao ON produtos_cotados(cotacao)")
     
     # Criar usuário admin padrão se não existir
@@ -150,7 +150,7 @@ def save_dataset(name: str, uploaded_by: int,
                 vendas_df: Optional[pd.DataFrame] = None,
                 cotacoes_df: Optional[pd.DataFrame] = None,
                 produtos_cotados_df: Optional[pd.DataFrame] = None) -> int:
-    """Salva um novo dataset no banco"""
+    """Salva dataset no banco com validação inteligente de duplicatas"""
     
     conn = get_connection()
     cursor = conn.cursor()
@@ -160,6 +160,54 @@ def save_dataset(name: str, uploaded_by: int,
     cotacoes_fp = calculate_fingerprint(cotacoes_df) if cotacoes_df is not None else None
     produtos_fp = calculate_fingerprint(produtos_cotados_df) if produtos_cotados_df is not None else None
     
+    # 🔍 VALIDAÇÃO DE DUPLICATAS POR FINGERPRINT
+    print(f"🔍 Verificando duplicatas...")
+    print(f"  - Vendas FP: {vendas_fp[:10] if vendas_fp else 'None'}...")
+    print(f"  - Cotações FP: {cotacoes_fp[:10] if cotacoes_fp else 'None'}...")
+    print(f"  - Produtos FP: {produtos_fp[:10] if produtos_fp else 'None'}...")
+    
+    # LÓGICA CORRIGIDA: Só verifica duplicatas se pelo menos um fingerprint não for NULL
+    duplicate_conditions = []
+    params = []
+    
+    if vendas_fp:
+        duplicate_conditions.append("vendas_fingerprint = ?")
+        params.append(vendas_fp)
+    
+    if cotacoes_fp:
+        duplicate_conditions.append("cotacoes_fingerprint = ?")
+        params.append(cotacoes_fp)
+    
+    if produtos_fp:
+        duplicate_conditions.append("produtos_cotados_fingerprint = ?")
+        params.append(produtos_fp)
+    
+    # Só verifica duplicatas se houver pelo menos um fingerprint para comparar
+    duplicate_check = None
+    if duplicate_conditions:
+        query = f"""
+            SELECT id, name, uploaded_at 
+            FROM datasets 
+            WHERE {' OR '.join(duplicate_conditions)}
+            ORDER BY uploaded_at DESC 
+            LIMIT 1
+        """
+        duplicate_check = cursor.execute(query, params).fetchone()
+    
+    if duplicate_check:
+        existing_id, existing_name, existing_date = duplicate_check
+        print(f"⚠️  DADOS IDÊNTICOS DETECTADOS!")
+        print(f"   Dataset existente: '{existing_name}' (ID: {existing_id})")
+        print(f"   Uploaded em: {existing_date}")
+        print(f"   ❌ Upload cancelado para evitar duplicação")
+        
+        conn.close()
+        return existing_id  # Retorna ID do dataset existente
+    
+    
+    # 🆕 DADOS NOVOS - Prosseguir com inserção
+    print(f"✅ Dados novos detectados - prosseguindo com inserção")
+    
     # Insere o dataset
     cursor.execute("""
         INSERT INTO datasets (name, uploaded_by, vendas_fingerprint, cotacoes_fingerprint, produtos_cotados_fingerprint)
@@ -167,29 +215,226 @@ def save_dataset(name: str, uploaded_by: int,
     """, (name, uploaded_by, vendas_fp, cotacoes_fp, produtos_fp))
     
     dataset_id = cursor.lastrowid
+    print(f"🆔 Novo dataset criado com ID: {dataset_id}")
     
-    # Salva os dados das vendas
+    # 📊 ESTRATÉGIA INTELIGENTE DE INSERÇÃO
+    records_summary = {
+        'vendas_novos': 0,
+        'cotacoes_novas': 0, 
+        'produtos_novos': 0,
+        'vendas_atualizados': 0,
+        'cotacoes_atualizadas': 0,
+        'produtos_atualizados': 0
+    }
+    
+    # Salva os dados das vendas com validação inteligente
     if vendas_df is not None and not vendas_df.empty:
         vendas_df_copy = vendas_df.copy()
         vendas_df_copy['dataset_id'] = dataset_id
-        vendas_df_copy.to_sql('vendas', conn, if_exists='append', index=False)
+        
+        # Filtra apenas colunas válidas para a tabela vendas
+        valid_vendas_columns = [
+            'dataset_id', 'cod_cliente', 'cliente', 'material', 'produto', 
+            'unidade_negocio', 'canal_distribuicao', 'hier_produto_1', 
+            'hier_produto_2', 'hier_produto_3', 'data', 'data_faturamento',
+            'qtd_entrada', 'vlr_entrada', 'qtd_carteira', 'vlr_carteira',
+            'qtd_rol', 'vlr_rol'
+        ]
+        columns_to_keep = [col for col in valid_vendas_columns if col in vendas_df_copy.columns]
+        vendas_df_copy = vendas_df_copy[columns_to_keep]
+        
+        # 🔍 INSERÇÃO INTELIGENTE - Evita duplicatas por chave de negócio
+        records_summary['vendas_novos'] = _smart_insert_vendas(conn, vendas_df_copy)
+        print(f"📊 VENDAS: {records_summary['vendas_novos']} registros inseridos")
     
-    # Salva os dados das cotações
+    # Salva os dados das cotações com validação inteligente
     if cotacoes_df is not None and not cotacoes_df.empty:
         cotacoes_df_copy = cotacoes_df.copy()
         cotacoes_df_copy['dataset_id'] = dataset_id
-        cotacoes_df_copy.to_sql('cotacoes', conn, if_exists='append', index=False)
+        
+        # Filtra apenas colunas válidas para a tabela cotacoes
+        valid_cotacoes_columns = [
+            'dataset_id', 'numero_cotacao', 'numero_revisao', 
+            'linhas_cotacao', 'status_cotacao', 'cod_cliente', 'cliente', 'data'
+        ]
+        columns_to_keep = [col for col in valid_cotacoes_columns if col in cotacoes_df_copy.columns]
+        cotacoes_df_copy = cotacoes_df_copy[columns_to_keep]
+        
+        # 🔍 INSERÇÃO INTELIGENTE - Evita duplicatas por chave de negócio
+        records_summary['cotacoes_novas'] = _smart_insert_cotacoes(conn, cotacoes_df_copy)
+        print(f"📊 COTAÇÕES: {records_summary['cotacoes_novas']} registros inseridos")
     
-    # Salva os dados dos produtos cotados
+    # Salva os dados dos produtos cotados com validação inteligente
     if produtos_cotados_df is not None and not produtos_cotados_df.empty:
         produtos_df_copy = produtos_cotados_df.copy()
         produtos_df_copy['dataset_id'] = dataset_id
-        produtos_df_copy.to_sql('produtos_cotados', conn, if_exists='append', index=False)
+        
+        # Filtra apenas colunas válidas para a tabela produtos_cotados
+        valid_produtos_columns = [
+            'dataset_id', 'cotacao', 'cod_cliente', 'cliente', 
+            'centro_fornecedor', 'material', 'descricao', 'quantidade',
+            'preco_liquido_unitario', 'preco_liquido_total'
+        ]
+        columns_to_keep = [col for col in valid_produtos_columns if col in produtos_df_copy.columns]
+        produtos_df_copy = produtos_df_copy[columns_to_keep]
+        
+        # 🔍 INSERÇÃO INTELIGENTE - Evita duplicatas por chave de negócio
+        records_summary['produtos_novos'] = _smart_insert_produtos_cotados(conn, produtos_df_copy)
+        print(f"📊 PRODUTOS COTADOS: {records_summary['produtos_novos']} registros inseridos")
+    
+    # 📈 RESUMO FINAL
+    total_novos = records_summary['vendas_novos'] + records_summary['cotacoes_novas'] + records_summary['produtos_novos']
+    print(f"✅ UPLOAD CONCLUÍDO!")
+    print(f"   📊 Total de registros novos: {total_novos}")
+    print(f"   💾 Dataset ID: {dataset_id}")
     
     conn.commit()
     conn.close()
     
     return dataset_id
+
+def _smart_insert_vendas(conn, vendas_df: pd.DataFrame) -> int:
+    """Inserção inteligente de vendas evitando duplicatas"""
+    cursor = conn.cursor()
+    inserted_count = 0
+    
+    for _, row in vendas_df.iterrows():
+        # Chave de negócio para vendas: cod_cliente + material + data
+        business_key = (row.get('cod_cliente'), row.get('material'), row.get('data'))
+        
+        # Verifica se já existe este registro
+        existing = cursor.execute("""
+            SELECT id FROM vendas 
+            WHERE cod_cliente = ? AND material = ? AND data = ?
+        """, business_key).fetchone()
+        
+        if not existing:
+            # Insere novo registro
+            columns = list(row.index)
+            values = tuple(row.values)
+            placeholders = ', '.join(['?' for _ in columns])
+            
+            cursor.execute(f"""
+                INSERT INTO vendas ({', '.join(columns)})
+                VALUES ({placeholders})
+            """, values)
+            inserted_count += 1
+    
+    return inserted_count
+
+def _smart_insert_cotacoes(conn, cotacoes_df: pd.DataFrame) -> int:
+    """Inserção inteligente de cotações evitando duplicatas"""
+    cursor = conn.cursor()
+    inserted_count = 0
+    
+    for _, row in cotacoes_df.iterrows():
+        # Chave de negócio para cotações: numero_cotacao + numero_revisao
+        business_key = (row.get('numero_cotacao'), row.get('numero_revisao'))
+        
+        # Verifica se já existe este registro
+        existing = cursor.execute("""
+            SELECT id FROM cotacoes 
+            WHERE numero_cotacao = ? AND numero_revisao = ?
+        """, business_key).fetchone()
+        
+        if not existing:
+            # Insere novo registro
+            columns = list(row.index)
+            values = tuple(row.values)
+            placeholders = ', '.join(['?' for _ in columns])
+            
+            cursor.execute(f"""
+                INSERT INTO cotacoes ({', '.join(columns)})
+                VALUES ({placeholders})
+            """, values)
+            inserted_count += 1
+    
+    return inserted_count
+
+def _smart_insert_produtos_cotados(conn, produtos_df: pd.DataFrame) -> int:
+    """Inserção inteligente de produtos cotados evitando duplicatas"""
+    cursor = conn.cursor()
+    inserted_count = 0
+    
+    for _, row in produtos_df.iterrows():
+        # Chave de negócio para produtos cotados: cotacao + material
+        business_key = (row.get('cotacao'), row.get('material'))
+        
+        # Verifica se já existe este registro
+        existing = cursor.execute("""
+            SELECT id FROM produtos_cotados 
+            WHERE cotacao = ? AND material = ?
+        """, business_key).fetchone()
+        
+        if not existing:
+            # Insere novo registro
+            columns = list(row.index)
+            values = tuple(row.values)
+            placeholders = ', '.join(['?' for _ in columns])
+            
+            cursor.execute(f"""
+                INSERT INTO produtos_cotados ({', '.join(columns)})
+                VALUES ({placeholders})
+            """, values)
+            inserted_count += 1
+    
+    return inserted_count
+
+def get_dataset_statistics() -> Dict:
+    """Retorna estatísticas de datasets e duplicatas"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Estatísticas gerais
+    stats = {}
+    
+    # Total de datasets
+    stats['total_datasets'] = cursor.execute("SELECT COUNT(*) FROM datasets").fetchone()[0]
+    
+    # Total de registros por tabela
+    stats['total_vendas'] = cursor.execute("SELECT COUNT(*) FROM vendas").fetchone()[0]
+    stats['total_cotacoes'] = cursor.execute("SELECT COUNT(*) FROM cotacoes").fetchone()[0]
+    stats['total_produtos_cotados'] = cursor.execute("SELECT COUNT(*) FROM produtos_cotados").fetchone()[0]
+    
+    # Datasets únicos por fingerprint
+    stats['unique_vendas_fps'] = cursor.execute("""
+        SELECT COUNT(DISTINCT vendas_fingerprint) FROM datasets 
+        WHERE vendas_fingerprint IS NOT NULL
+    """).fetchone()[0]
+    
+    stats['unique_cotacoes_fps'] = cursor.execute("""
+        SELECT COUNT(DISTINCT cotacoes_fingerprint) FROM datasets 
+        WHERE cotacoes_fingerprint IS NOT NULL
+    """).fetchone()[0]
+    
+    stats['unique_produtos_fps'] = cursor.execute("""
+        SELECT COUNT(DISTINCT produtos_cotados_fingerprint) FROM datasets 
+        WHERE produtos_cotados_fingerprint IS NOT NULL
+    """).fetchone()[0]
+    
+    # Datasets mais recentes
+    recent_datasets = cursor.execute("""
+        SELECT name, uploaded_at, 
+               CASE WHEN vendas_fingerprint IS NOT NULL THEN 'Sim' ELSE 'Não' END as tem_vendas,
+               CASE WHEN cotacoes_fingerprint IS NOT NULL THEN 'Sim' ELSE 'Não' END as tem_cotacoes,
+               CASE WHEN produtos_cotados_fingerprint IS NOT NULL THEN 'Sim' ELSE 'Não' END as tem_produtos
+        FROM datasets 
+        ORDER BY uploaded_at DESC 
+        LIMIT 5
+    """).fetchall()
+    
+    stats['recent_datasets'] = [
+        {
+            'name': row[0],
+            'uploaded_at': row[1], 
+            'tem_vendas': row[2],
+            'tem_cotacoes': row[3],
+            'tem_produtos': row[4]
+        } for row in recent_datasets
+    ]
+    
+    conn.close()
+    return stats
 
 def get_latest_dataset() -> Optional[Dict]:
     """Retorna informações do dataset mais recente"""
@@ -225,13 +470,9 @@ def load_vendas_data(dataset_id: Optional[int] = None) -> pd.DataFrame:
         query = "SELECT * FROM vendas WHERE dataset_id = ?"
         df = pd.read_sql_query(query, conn, params=(dataset_id,))
     else:
-        # Carrega dados do dataset mais recente
-        latest = get_latest_dataset()
-        if latest:
-            query = "SELECT * FROM vendas WHERE dataset_id = ?"
-            df = pd.read_sql_query(query, conn, params=(latest['id'],))
-        else:
-            df = pd.DataFrame()
+        # Carrega TODOS os dados de vendas (de todos os datasets)
+        query = "SELECT * FROM vendas ORDER BY dataset_id DESC, id ASC"
+        df = pd.read_sql_query(query, conn)
     
     conn.close()
     
@@ -251,13 +492,9 @@ def load_cotacoes_data(dataset_id: Optional[int] = None) -> pd.DataFrame:
         query = "SELECT * FROM cotacoes WHERE dataset_id = ?"
         df = pd.read_sql_query(query, conn, params=(dataset_id,))
     else:
-        # Carrega dados do dataset mais recente
-        latest = get_latest_dataset()
-        if latest:
-            query = "SELECT * FROM cotacoes WHERE dataset_id = ?"
-            df = pd.read_sql_query(query, conn, params=(latest['id'],))
-        else:
-            df = pd.DataFrame()
+        # Carrega TODOS os dados de cotações (de todos os datasets)
+        query = "SELECT * FROM cotacoes ORDER BY dataset_id DESC, id ASC"
+        df = pd.read_sql_query(query, conn)
     
     conn.close()
     
@@ -275,13 +512,9 @@ def load_produtos_cotados_data(dataset_id: Optional[int] = None) -> pd.DataFrame
         query = "SELECT * FROM produtos_cotados WHERE dataset_id = ?"
         df = pd.read_sql_query(query, conn, params=(dataset_id,))
     else:
-        # Carrega dados do dataset mais recente
-        latest = get_latest_dataset()
-        if latest:
-            query = "SELECT * FROM produtos_cotados WHERE dataset_id = ?"
-            df = pd.read_sql_query(query, conn, params=(latest['id'],))
-        else:
-            df = pd.DataFrame()
+        # Carrega TODOS os dados de produtos cotados (de todos os datasets)
+        query = "SELECT * FROM produtos_cotados ORDER BY dataset_id DESC, id ASC"
+        df = pd.read_sql_query(query, conn)
     
     conn.close()
     return df
@@ -349,3 +582,165 @@ def _norm_year(v):
         return int(v)
     except:
         return None
+
+# Funções de limpeza de dados
+def clear_vendas_data():
+    """Limpa todos os dados de vendas do banco"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("DELETE FROM vendas")
+        affected_rows = cursor.rowcount
+        
+        # Remove datasets que só tinham vendas ou atualiza fingerprints
+        cursor.execute("""
+            DELETE FROM datasets 
+            WHERE vendas_fingerprint IS NOT NULL 
+            AND cotacoes_fingerprint IS NULL 
+            AND produtos_cotados_fingerprint IS NULL
+        """)
+        
+        # Para datasets que têm outros dados, apenas limpa o fingerprint de vendas
+        cursor.execute("UPDATE datasets SET vendas_fingerprint = NULL WHERE vendas_fingerprint IS NOT NULL")
+        
+        conn.commit()
+        print(f"✅ {affected_rows} registros de vendas removidos")
+        return affected_rows
+    except Exception as e:
+        conn.rollback()
+        print(f"❌ Erro ao limpar dados de vendas: {e}")
+        raise e
+    finally:
+        conn.close()
+
+def clear_cotacoes_data():
+    """Limpa todos os dados de cotações do banco"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("DELETE FROM cotacoes")
+        affected_rows = cursor.rowcount
+        
+        # Remove datasets que só tinham cotações ou atualiza fingerprints
+        cursor.execute("""
+            DELETE FROM datasets 
+            WHERE cotacoes_fingerprint IS NOT NULL 
+            AND vendas_fingerprint IS NULL 
+            AND produtos_cotados_fingerprint IS NULL
+        """)
+        
+        # Para datasets que têm outros dados, apenas limpa o fingerprint de cotações
+        cursor.execute("UPDATE datasets SET cotacoes_fingerprint = NULL WHERE cotacoes_fingerprint IS NOT NULL")
+        
+        conn.commit()
+        print(f"✅ {affected_rows} registros de cotações removidos")
+        return affected_rows
+    except Exception as e:
+        conn.rollback()
+        print(f"❌ Erro ao limpar dados de cotações: {e}")
+        raise e
+    finally:
+        conn.close()
+
+def clear_materiais_data():
+    """Limpa todos os dados de materiais cotados do banco"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("DELETE FROM produtos_cotados")
+        affected_rows = cursor.rowcount
+        
+        # Remove datasets que só tinham materiais ou atualiza fingerprints
+        cursor.execute("""
+            DELETE FROM datasets 
+            WHERE produtos_cotados_fingerprint IS NOT NULL 
+            AND vendas_fingerprint IS NULL 
+            AND cotacoes_fingerprint IS NULL
+        """)
+        
+        # Para datasets que têm outros dados, apenas limpa o fingerprint de materiais
+        cursor.execute("UPDATE datasets SET produtos_cotados_fingerprint = NULL WHERE produtos_cotados_fingerprint IS NOT NULL")
+        
+        conn.commit()
+        print(f"✅ {affected_rows} registros de materiais cotados removidos")
+        return affected_rows
+    except Exception as e:
+        conn.rollback()
+        print(f"❌ Erro ao limpar dados de materiais: {e}")
+        raise e
+    finally:
+        conn.close()
+
+def clear_all_data():
+    """Limpa TODOS os dados do banco (vendas, cotações, materiais e datasets)"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Remove dados das tabelas principais
+        cursor.execute("DELETE FROM vendas")
+        vendas_count = cursor.rowcount
+        
+        cursor.execute("DELETE FROM cotacoes")
+        cotacoes_count = cursor.rowcount
+        
+        cursor.execute("DELETE FROM produtos_cotados")
+        materiais_count = cursor.rowcount
+        
+        cursor.execute("DELETE FROM datasets")
+        datasets_count = cursor.rowcount
+        
+        conn.commit()
+        
+        total_count = vendas_count + cotacoes_count + materiais_count + datasets_count
+        print(f"✅ Limpeza total concluída:")
+        print(f"  - {vendas_count} registros de vendas")
+        print(f"  - {cotacoes_count} registros de cotações")
+        print(f"  - {materiais_count} registros de materiais")
+        print(f"  - {datasets_count} datasets")
+        print(f"  - Total: {total_count} registros removidos")
+        
+        return {
+            'vendas': vendas_count,
+            'cotacoes': cotacoes_count,
+            'materiais': materiais_count,
+            'datasets': datasets_count,
+            'total': total_count
+        }
+    except Exception as e:
+        conn.rollback()
+        print(f"❌ Erro ao limpar todos os dados: {e}")
+        raise e
+    finally:
+        conn.close()
+
+def get_data_statistics():
+    """Retorna estatísticas dos dados no banco"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        stats = {}
+        
+        # Contar registros de cada tabela
+        cursor.execute("SELECT COUNT(*) FROM vendas")
+        stats['vendas'] = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM cotacoes")
+        stats['cotacoes'] = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM produtos_cotados")
+        stats['materiais'] = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM datasets")
+        stats['datasets'] = cursor.fetchone()[0]
+        
+        return stats
+    except Exception as e:
+        print(f"❌ Erro ao obter estatísticas: {e}")
+        return {'vendas': 0, 'cotacoes': 0, 'materiais': 0, 'datasets': 0}
+    finally:
+        conn.close()

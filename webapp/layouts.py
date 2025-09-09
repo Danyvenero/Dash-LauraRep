@@ -456,6 +456,73 @@ def create_config_layout():
             ], width=12, md=6)
         ], className="mb-4"),
         
+        # Seção de limpeza de dados
+        dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardHeader("🗑️ Gerenciamento de Dados"),
+                    dbc.CardBody([
+                        html.H6("Limpeza Seletiva de Dados"),
+                        html.P("Limpe dados específicos do banco de dados. Esta ação é irreversível.", 
+                              className="text-muted small"),
+                        
+                        # Estatísticas atuais dos dados
+                        html.Div(id="data-stats", className="mb-3"),
+                        
+                        dbc.Alert([
+                            html.I(className="fas fa-exclamation-triangle me-2"),
+                            "Atenção: A limpeza de dados é permanente e não pode ser desfeita."
+                        ], color="warning", className="mb-3"),
+                        
+                        # Botões de limpeza
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Button(
+                                    [html.I(className="fas fa-chart-line me-2"), "Limpar Vendas"],
+                                    id="btn-clear-vendas",
+                                    color="danger",
+                                    outline=True,
+                                    className="w-100 mb-2"
+                                )
+                            ], width=12, md=4),
+                            dbc.Col([
+                                dbc.Button(
+                                    [html.I(className="fas fa-file-contract me-2"), "Limpar Cotações"],
+                                    id="btn-clear-cotacoes",
+                                    color="danger",
+                                    outline=True,
+                                    className="w-100 mb-2"
+                                )
+                            ], width=12, md=4),
+                            dbc.Col([
+                                dbc.Button(
+                                    [html.I(className="fas fa-tools me-2"), "Limpar Materiais"],
+                                    id="btn-clear-materiais",
+                                    color="danger",
+                                    outline=True,
+                                    className="w-100 mb-2"
+                                )
+                            ], width=12, md=4)
+                        ]),
+                        
+                        # Botão para limpeza total
+                        dbc.Row([
+                            dbc.Col([
+                                dbc.Button(
+                                    [html.I(className="fas fa-trash-alt me-2"), "Limpar Todos os Dados"],
+                                    id="btn-clear-all-data",
+                                    color="danger",
+                                    className="w-100 mt-2"
+                                )
+                            ], width=12)
+                        ]),
+                        
+                        html.Div(id="clear-data-status", className="mt-3")
+                    ])
+                ])
+            ], width=12)
+        ], className="mb-4"),
+        
         # Log de atividades
         dbc.Row([
             dbc.Col([
@@ -466,7 +533,66 @@ def create_config_layout():
                     ])
                 ])
             ], width=12)
-        ])
+        ]),
+        
+        # Modais de confirmação para limpeza de dados
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("⚠️ Confirmar Limpeza de Vendas")),
+            dbc.ModalBody([
+                html.P("Tem certeza que deseja limpar TODOS os dados de vendas?"),
+                html.P("Esta ação é irreversível e removerá todos os registros de vendas do banco de dados.", 
+                       className="text-danger")
+            ]),
+            dbc.ModalFooter([
+                dbc.Button("Cancelar", id="modal-cancel-vendas", className="ms-auto", n_clicks=0),
+                dbc.Button("Confirmar Limpeza", id="modal-confirm-vendas", color="danger", className="ms-2", n_clicks=0)
+            ])
+        ], id="modal-confirm-clear-vendas", is_open=False),
+        
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("⚠️ Confirmar Limpeza de Cotações")),
+            dbc.ModalBody([
+                html.P("Tem certeza que deseja limpar TODOS os dados de cotações?"),
+                html.P("Esta ação é irreversível e removerá todos os registros de cotações do banco de dados.", 
+                       className="text-danger")
+            ]),
+            dbc.ModalFooter([
+                dbc.Button("Cancelar", id="modal-cancel-cotacoes", className="ms-auto", n_clicks=0),
+                dbc.Button("Confirmar Limpeza", id="modal-confirm-cotacoes", color="danger", className="ms-2", n_clicks=0)
+            ])
+        ], id="modal-confirm-clear-cotacoes", is_open=False),
+        
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("⚠️ Confirmar Limpeza de Materiais")),
+            dbc.ModalBody([
+                html.P("Tem certeza que deseja limpar TODOS os dados de materiais cotados?"),
+                html.P("Esta ação é irreversível e removerá todos os registros de materiais cotados do banco de dados.", 
+                       className="text-danger")
+            ]),
+            dbc.ModalFooter([
+                dbc.Button("Cancelar", id="modal-cancel-materiais", className="ms-auto", n_clicks=0),
+                dbc.Button("Confirmar Limpeza", id="modal-confirm-materiais", color="danger", className="ms-2", n_clicks=0)
+            ])
+        ], id="modal-confirm-clear-materiais", is_open=False),
+        
+        dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("⚠️ Confirmar Limpeza Total")),
+            dbc.ModalBody([
+                html.P("ATENÇÃO: Tem certeza que deseja limpar TODOS OS DADOS?"),
+                html.P("Esta ação irá remover:", className="text-danger fw-bold"),
+                html.Ul([
+                    html.Li("Todos os dados de vendas"),
+                    html.Li("Todos os dados de cotações"),
+                    html.Li("Todos os dados de materiais cotados"),
+                    html.Li("Todos os datasets cadastrados")
+                ], className="text-danger"),
+                html.P("Esta ação é completamente irreversível!", className="text-danger fw-bold")
+            ]),
+            dbc.ModalFooter([
+                dbc.Button("Cancelar", id="modal-cancel-all", className="ms-auto", n_clicks=0),
+                dbc.Button("CONFIRMAR LIMPEZA TOTAL", id="modal-confirm-all", color="danger", className="ms-2", n_clicks=0)
+            ])
+        ], id="modal-confirm-clear-all", is_open=False)
     ])
 
 def get_layout(pathname):
