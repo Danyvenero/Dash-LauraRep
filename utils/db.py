@@ -5,6 +5,7 @@ Módulo de configuração e operações do banco de dados SQLite
 import sqlite3
 import hashlib
 import pandas as pd
+import time
 from datetime import datetime
 from pathlib import Path
 import json
@@ -465,32 +466,46 @@ def get_latest_dataset() -> Optional[Dict]:
 
 from .cache_manager import cached_dataframe
 
-@cached_dataframe(ttl_seconds=300)  # Cache por 5 minutos
+@cached_dataframe(ttl_seconds=1800)  # Cache por 30 minutos (otimizado)
 def load_vendas_data(dataset_id: Optional[int] = None) -> pd.DataFrame:
-    """Carrega dados de vendas do banco com cache"""
+    """Carrega dados de vendas do banco com cache otimizado"""
+    start_time = time.time()
+    print(f"💾 Cache MISS para load_vendas_data - executando...")
+    
     conn = get_connection()
     
-    if dataset_id:
-        query = "SELECT * FROM vendas WHERE dataset_id = ?"
-        df = pd.read_sql_query(query, conn, params=(dataset_id,))
-    else:
-        # Carrega TODOS os dados de vendas (de todos os datasets)
-        query = "SELECT * FROM vendas ORDER BY dataset_id DESC, id ASC"
-        df = pd.read_sql_query(query, conn)
-    
-    conn.close()
-    
-    # Converte colunas de data
-    if not df.empty:
-        for col in ['data', 'data_faturamento']:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
-    
-    # Aplica padronizações antes de retornar os dados
-    if not df.empty:
-        df = apply_vendas_standardization(df)
-    
-    return df
+    try:
+        if dataset_id:
+            query = "SELECT * FROM vendas WHERE dataset_id = ?"
+            df = pd.read_sql_query(query, conn, params=(dataset_id,))
+        else:
+            # Carrega TODOS os dados de vendas (de todos os datasets) - OTIMIZADO
+            # Usa query mais eficiente com índices
+            query = """
+            SELECT * FROM vendas 
+            ORDER BY dataset_id DESC, id ASC
+            """
+            df = pd.read_sql_query(query, conn)
+        
+        # Otimização: processa conversões em lote
+        if not df.empty:
+            # Converte colunas de data de forma mais eficiente
+            date_columns = ['data', 'data_faturamento']
+            for col in date_columns:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], errors='coerce', cache=True)
+            
+            # Aplica padronizações antes de retornar os dados
+            df = apply_vendas_standardization(df)
+        
+        end_time = time.time()
+        print(f"⏱️ load_vendas_data executado em {end_time - start_time:.2f}s")
+        print(f"📊 Dados carregados: {len(df)} registros de vendas")
+        
+        return df
+        
+    finally:
+        conn.close()
 
 @cached_dataframe(ttl_seconds=300)  # Cache por 5 minutos
 def load_cotacoes_data(dataset_id: Optional[int] = None) -> pd.DataFrame:

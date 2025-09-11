@@ -54,6 +54,7 @@ def display_main_content(pathname):
         create_overview_layout, 
         create_clients_layout, 
         create_products_layout,
+        create_analytics_layout,
         create_config_layout
     )
     from utils import is_authenticated
@@ -69,6 +70,8 @@ def display_main_content(pathname):
         return create_products_layout()
     elif pathname == '/app/config':
         return create_config_layout()
+    elif pathname == '/app/analytics':
+        return create_analytics_layout()
     elif pathname == '/app/funnel':
         return html.Div([
             html.H4("Funil & Ações"),

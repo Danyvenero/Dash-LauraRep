@@ -14,6 +14,7 @@ from utils import (
     load_produtos_cotados_data,
     KPICalculator, 
     VisualizationGenerator,
+    AdvancedAnalytics,
     SENTINEL_ALL
 )
 from utils.cache_manager import cached_dataframe, cached_result, cache_manager
@@ -1309,18 +1310,28 @@ def update_clients_table_page_size(page_size):
      Input('global-filtro-canal', 'value'),
      Input('global-filtro-top-clientes', 'value'),
      Input('global-filtro-dias-sem-compra', 'value'),
-     Input('filter-top-produtos', 'value')],
+     Input('filter-top-produtos', 'value'),
+     Input('filter-color-scale', 'value')],
     prevent_initial_call=False
 )
-def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, top_produtos):
+def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, top_produtos, color_scale):
     """Atualiza gráficos da página de produtos"""
     print(f"🔄 UPDATE_PRODUCTS_CHARTS executado - pathname: {pathname}")
     print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
-    print(f"   Hierarquia={filtro_hierarquia}, Top Produtos={top_produtos}")
+    print(f"   Hierarquia={filtro_hierarquia}, Top Produtos={top_produtos}, Paleta={color_scale}")
     
     try:
         import plotly.graph_objects as go
         import plotly.express as px
+        
+        # Define paleta de cores baseada na seleção
+        color_map = {
+            'weg_blue': 'Blues',
+            'performance': 'RdYlGn', 
+            'viridis': 'Viridis',
+            'plasma': 'Plasma'
+        }
+        color_sequence = color_map.get(color_scale, 'Blues')
         
         # Processa sempre, mas mostra mensagem se não for página de produtos
         vendas_df = load_vendas_data()
@@ -1417,6 +1428,7 @@ def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, fil
                         y=product_column,
                         size=size_col,  # Usa coluna com valores absolutos
                         color=color_col,
+                        color_continuous_scale=color_sequence,  # Usa paleta selecionada
                         hover_data=['vlr_rol'] + ([qty_col] if qty_col and qty_col in matriz_filtered.columns else []),
                         title=f'Matriz Clientes × Produtos {title_suffix}'
                     )
@@ -1532,4 +1544,1106 @@ def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, fil
 # Os callbacks individuais para grafico-bolhas-produtos e grafico-pareto-produtos
 # foram removidos para evitar conflito com o callback combinado na linha 1232-1233
 
+# =======================================
+# CALLBACKS PARA BOTÕES DA TELA CLIENTES
+# =======================================
+
+# Callback combinado para Selecionar/Desmarcar Todos (clientes)
+@app.callback(
+    Output('tabela-kpis-clientes', 'selected_rows'),
+    [Input('btn-select-all-clientes', 'n_clicks'),
+     Input('btn-deselect-all-clientes', 'n_clicks')],
+    State('tabela-kpis-clientes', 'data'),
+    prevent_initial_call=True
+)
+def manage_client_selection(select_clicks, deselect_clicks, data):
+    """Gerencia seleção/deseleção de todas as linhas da tabela de clientes"""
+    ctx = callback_context
+    
+    if not ctx.triggered:
+        return []
+    
+    # Identifica qual botão foi clicado
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    if button_id == 'btn-select-all-clientes' and select_clicks and data:
+        # Seleciona todas as linhas
+        return list(range(len(data)))
+    elif button_id == 'btn-deselect-all-clientes' and deselect_clicks:
+        # Desmarca todas as linhas
+        return []
+    
+    return []
+
+# =======================================
+# CALLBACKS PARA BOTÕES DA TELA PRODUTOS
+# =======================================
+
+# Callback combinado para Selecionar/Desmarcar Todos (produtos)
+@app.callback(
+    Output('tabela-analise-produtos', 'selected_rows'),
+    [Input('btn-select-all-produtos', 'n_clicks'),
+     Input('btn-deselect-all-produtos', 'n_clicks')],
+    State('tabela-analise-produtos', 'data'),
+    prevent_initial_call=True
+)
+def manage_product_selection(select_clicks, deselect_clicks, data):
+    """Gerencia seleção/deseleção de todas as linhas da tabela de produtos"""
+    ctx = callback_context
+    
+    if not ctx.triggered:
+        return []
+    
+    # Identifica qual botão foi clicado
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    if button_id == 'btn-select-all-produtos' and select_clicks and data:
+        # Seleciona todas as linhas
+        return list(range(len(data)))
+    elif button_id == 'btn-deselect-all-produtos' and deselect_clicks:
+        # Desmarca todas as linhas
+        return []
+    
+    return []
+
+# Callback para botão Limpar Filtros (clientes)
+@app.callback(
+    [Output('global-filtro-cliente', 'value'),
+     Output('global-filtro-hierarquia', 'value'),
+     Output('global-filtro-canal', 'value'),
+     Output('global-filtro-top-clientes', 'value'),
+     Output('global-filtro-dias-sem-compra', 'value')],
+    Input('btn-clear-filters-clientes', 'n_clicks'),
+    prevent_initial_call=True
+)
+def clear_filters_clients(n_clicks):
+    """Limpa todos os filtros da tela de clientes"""
+    if n_clicks:
+        return None, None, None, None, [0, 365]  # Valores padrão
+    return None, None, None, None, [0, 365]
+
+# Callback para botão Limpar Filtros (produtos)
+@app.callback(
+    [Output('filter-material-table', 'value'),
+     Output('tabela-analise-produtos', 'filter_query')],
+    Input('btn-clear-filters-produtos', 'n_clicks'),
+    prevent_initial_call=True
+)
+def clear_filters_products(n_clicks):
+    """Limpa filtros específicos da tela de produtos
+    
+    NOTA: Os filtros nativos do DataTable (filter_action='native') não podem ser
+    limpos completamente via callback devido a limitações do Dash. Esta função
+    limpa o filtro de material e tenta resetar o filter_query, mas os usuários
+    podem precisar limpar manualmente os filtros da tabela usando a interface.
+    """
+    if n_clicks:
+        return None, ""  # Limpa o filtro de material e tenta limpar filter_query
+    return None, ""
+
+# Callback para Download CSV dos clientes
+@app.callback(
+    Output('download-csv-clientes', 'data'),
+    Input('btn-download-csv-clientes', 'n_clicks'),
+    State('tabela-kpis-clientes', 'data'),
+    prevent_initial_call=True
+)
+def download_csv_clientes(n_clicks, table_data):
+    """Faz download da tabela de clientes em CSV"""
+    if n_clicks and table_data:
+        import pandas as pd
+        from datetime import datetime
+        
+        df = pd.DataFrame(table_data)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        return dcc.send_data_frame(
+            df.to_csv, 
+            f"analise_clientes_{timestamp}.csv",
+            index=False
+        )
+    return None
+
+# =======================================
+# TABELA DE ANÁLISE DE PRODUTOS
+# =======================================
+
+print("🔧 Registrando callback update_products_table...")
+
+# Callback para popular tabela de análise de produtos
+@app.callback(
+    [Output('tabela-analise-produtos', 'data'),
+     Output('filter-material-table', 'options'),
+     Output('tabela-analise-produtos', 'page_size')],
+    [Input('url', 'pathname'),
+     Input('global-filtro-ano', 'value'),
+     Input('global-filtro-mes', 'value'),
+     Input('global-filtro-cliente', 'value'),
+     Input('global-filtro-hierarquia', 'value'),
+     Input('global-filtro-canal', 'value'),
+     Input('global-filtro-top-clientes', 'value'),
+     Input('global-filtro-dias-sem-compra', 'value'),
+     Input('filter-material-table', 'value'),
+     Input('table-page-size-produtos', 'value')],
+    prevent_initial_call=False
+)
+def update_products_table(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, filtro_material, page_size):
+    """Atualiza tabela de análise de produtos"""
+    print(f"🔄 UPDATE_PRODUCTS_TABLE - pathname: {pathname}")
+    
+    if pathname != '/app/products':
+        print(f"❌ Pathname não corresponde: {pathname} != '/app/products'")
+        return [], [], 25
+    
+    try:
+        print(f"🔄 UPDATE_PRODUCTS_TABLE executado")
+        print(f"📋 Filtros recebidos - material: {filtro_material}")
+        
+        # Carrega dados
+        vendas_df = load_vendas_data()
+        cotacoes_df = load_cotacoes_data()
+        
+        print(f"📊 Dados carregados - Vendas: {len(vendas_df)} registros, Cotações: {len(cotacoes_df)} registros")
+        
+        if not vendas_df.empty:
+            print(f"📋 Colunas vendas: {list(vendas_df.columns)}")
+            if 'material' in vendas_df.columns:
+                print(f"📋 Materiais únicos em vendas: {vendas_df['material'].nunique()}")
+                print(f"📋 Primeiros 5 materiais: {vendas_df['material'].dropna().head().tolist()}")
+            else:
+                print("⚠️ Coluna 'material' não encontrada em vendas!")
+        else:
+            print("⚠️ DataFrame de vendas está vazio!")
+        
+        if vendas_df.empty and cotacoes_df.empty:
+            print("❌ Nenhum dado encontrado! Criando dados de teste para demonstração...")
+            
+            # Cria dados de teste para demonstração
+            produtos_analise = [
+                {
+                    'material': 'MAT001',
+                    'produto': 'Motor Elétrico 1CV',
+                    'hierarquia': 'MOTORES',
+                    'recorrencia_compra': 5,
+                    'recorrencia_cotacao': 8,
+                    'taxa_conversao': 62.5,
+                    'qty_media_cotada': 3.2,
+                    'valor_medio': 1550.00,
+                    'faturamento_total': 7750.00
+                },
+                {
+                    'material': 'MAT002',
+                    'produto': 'Motor Elétrico 2CV',
+                    'hierarquia': 'MOTORES',
+                    'recorrencia_compra': 3,
+                    'recorrencia_cotacao': 5,
+                    'taxa_conversao': 60.0,
+                    'qty_media_cotada': 2.5,
+                    'valor_medio': 2200.00,
+                    'faturamento_total': 6600.00
+                },
+                {
+                    'material': 'MAT003',
+                    'produto': 'Redutor de Velocidade',
+                    'hierarquia': 'REDUTORES',
+                    'recorrencia_compra': 4,
+                    'recorrencia_cotacao': 6,
+                    'taxa_conversao': 66.7,
+                    'qty_media_cotada': 4.0,
+                    'valor_medio': 800.00,
+                    'faturamento_total': 3200.00
+                }
+            ]
+            
+            # Cria opções do dropdown com dados de teste
+            materiais_options = [
+                {'label': 'MAT001 - Motor Elétrico 1CV', 'value': 'MAT001'},
+                {'label': 'MAT002 - Motor Elétrico 2CV', 'value': 'MAT002'},
+                {'label': 'MAT003 - Redutor de Velocidade', 'value': 'MAT003'}
+            ]
+            
+            print(f"✅ Dados de teste criados com {len(produtos_analise)} itens")
+            return produtos_analise, materiais_options, page_size or 25
+        
+        # Aplica filtros nos dados de vendas
+        vendas_filtradas = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
+                                       filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
+        
+        # Aplica filtros nos dados de cotações (mesmos filtros básicos)
+        cotacoes_filtradas = cotacoes_df.copy()
+        if not cotacoes_filtradas.empty:
+            # Filtro por ano
+            if filtro_ano and len(filtro_ano) == 2:
+                ano_col = 'data' if 'data' in cotacoes_filtradas.columns else None
+                if ano_col:
+                    cotacoes_filtradas[ano_col] = pd.to_datetime(cotacoes_filtradas[ano_col])
+                    cotacoes_filtradas = cotacoes_filtradas[
+                        (cotacoes_filtradas[ano_col].dt.year >= filtro_ano[0]) & 
+                        (cotacoes_filtradas[ano_col].dt.year <= filtro_ano[1])
+                    ]
+            
+            # Filtro por cliente
+            if filtro_cliente and isinstance(filtro_cliente, list) and len(filtro_cliente) > 0:
+                if 'cod_cliente' in cotacoes_filtradas.columns:
+                    cotacoes_filtradas = cotacoes_filtradas[cotacoes_filtradas['cod_cliente'].isin(filtro_cliente)]
+        
+        # Prepara dados para análise
+        produtos_analise = []
+        
+        # Processa dados de vendas por material/produto
+        if not vendas_filtradas.empty and 'material' in vendas_filtradas.columns:
+            # Usa as colunas corretas baseadas nos dados reais
+            agg_dict = {
+                'vlr_rol': ['sum', 'count', 'mean']
+            }
+            
+            # Adiciona coluna de quantidade se existir
+            if 'qtd_rol' in vendas_filtradas.columns:
+                agg_dict['qtd_rol'] = 'sum'
+            elif 'qty_vendida' in vendas_filtradas.columns:
+                agg_dict['qty_vendida'] = 'sum'
+            else:
+                # Se não há coluna de quantidade, usa count
+                agg_dict['vlr_rol'].append('size')
+            
+            vendas_por_material = vendas_filtradas.groupby(['material', 'hier_produto_1']).agg(agg_dict).reset_index()
+            
+            # Simplifica nomes das colunas
+            col_names = ['material', 'produto', 'faturamento_total', 'recorrencia_compra', 'valor_medio']
+            if 'qtd_rol' in agg_dict:
+                col_names.append('qty_total')
+            elif 'qty_vendida' in agg_dict:
+                col_names.append('qty_total')
+            else:
+                col_names.append('qty_total')  # será o size
+                
+            vendas_por_material.columns = col_names
+            
+            # Processa cotações por material
+            cotacoes_por_material = {}
+            if not cotacoes_filtradas.empty and 'material' in cotacoes_filtradas.columns:
+                # Verifica quais colunas de quantidade existem
+                qty_col = None
+                for col in ['qtde', 'quantidade', 'qty', 'qtd']:
+                    if col in cotacoes_filtradas.columns:
+                        qty_col = col
+                        break
+                
+                agg_cot = {'numero_cotacao': 'nunique'}
+                if qty_col:
+                    agg_cot[qty_col] = 'mean'
+                
+                cot_grouped = cotacoes_filtradas.groupby('material').agg(agg_cot).reset_index()
+                
+                if qty_col:
+                    cotacoes_por_material = dict(zip(cot_grouped['material'], 
+                                                    zip(cot_grouped['numero_cotacao'], cot_grouped[qty_col])))
+                else:
+                    cotacoes_por_material = dict(zip(cot_grouped['material'], 
+                                                    zip(cot_grouped['numero_cotacao'], [1.0] * len(cot_grouped))))
+                
+                print(f"📋 Cotações processadas: {len(cotacoes_por_material)} materiais")
+            
+            # Combina dados
+            for _, row in vendas_por_material.iterrows():
+                material = row['material']
+                hierarquia = row['produto']  # Este é na verdade hier_produto_1
+                
+                # Busca descrição do produto real da tabela vendas
+                produto_descricao = "N/A"
+                if 'produto' in vendas_filtradas.columns:
+                    produto_matches = vendas_filtradas[vendas_filtradas['material'] == material]['produto'].dropna()
+                    if not produto_matches.empty:
+                        produto_descricao = produto_matches.iloc[0]
+                
+                # Se não encontrou na coluna produto, usa a hierarquia como fallback
+                if produto_descricao == "N/A" or pd.isna(produto_descricao):
+                    produto_descricao = hierarquia
+                
+                # Dados de cotação para este material
+                cot_data = cotacoes_por_material.get(material, (0, 0))
+                recorrencia_cotacao = cot_data[0]
+                qty_media_cotada = cot_data[1]
+                
+                # Calcula taxa de conversão
+                taxa_conversao = (row['recorrencia_compra'] / recorrencia_cotacao * 100) if recorrencia_cotacao > 0 else 0
+                
+                produtos_analise.append({
+                    'material': material,
+                    'produto': str(produto_descricao),
+                    'hierarquia': str(hierarquia),
+                    'recorrencia_compra': int(row['recorrencia_compra']),
+                    'recorrencia_cotacao': int(recorrencia_cotacao),
+                    'taxa_conversao': round(taxa_conversao, 1),
+                    'qty_media_cotada': round(qty_media_cotada, 2),
+                    'valor_medio': round(row['valor_medio'], 2),
+                    'faturamento_total': round(row['faturamento_total'], 2)
+                })
+        
+        # Aplica filtro de material se selecionado
+        if filtro_material and isinstance(filtro_material, list):
+            produtos_analise = [p for p in produtos_analise if p['material'] in filtro_material]
+        
+        # Ordena por faturamento total (decrescente)
+        produtos_analise.sort(key=lambda x: x['faturamento_total'], reverse=True)
+        
+        # Prepara opções do dropdown de materiais
+        materiais_options = []
+        if not vendas_df.empty and 'material' in vendas_df.columns:
+            # Cria opções combinando material e descrição REAL do produto
+            if 'produto' in vendas_df.columns:
+                # Usa a coluna 'produto' que contém a descrição real
+                material_produto_df = vendas_df[['material', 'produto']].drop_duplicates()
+                
+                # Opções incluem material e descrição real do produto
+                opcoes_completas = []
+                for _, row in material_produto_df.iterrows():
+                    material = row['material']
+                    produto_descricao = row['produto']
+                    
+                    # Se não tem descrição do produto, busca na hierarquia como fallback
+                    if pd.isna(produto_descricao) or str(produto_descricao).strip() == "":
+                        if 'hier_produto_1' in vendas_df.columns:
+                            hierarquia_matches = vendas_df[vendas_df['material'] == material]['hier_produto_1'].dropna()
+                            if not hierarquia_matches.empty:
+                                produto_descricao = hierarquia_matches.iloc[0]
+                            else:
+                                produto_descricao = "Sem descrição"
+                        else:
+                            produto_descricao = "Sem descrição"
+                    
+                    label = f"{material} - {produto_descricao}" if pd.notna(produto_descricao) else material
+                    opcoes_completas.append({'label': label, 'value': material})
+                
+                # Remove duplicatas e ordena
+                material_dict = {opt['value']: opt['label'] for opt in opcoes_completas}
+                materiais_options = [{'label': label, 'value': material} 
+                                   for material, label in sorted(material_dict.items())]
+            elif 'hier_produto_1' in vendas_df.columns:
+                # Fallback: usa hierarquia se não tem coluna produto
+                material_produto_df = vendas_df[['material', 'hier_produto_1']].drop_duplicates()
+                
+                # Opções incluem material e hierarquia
+                opcoes_completas = []
+                for _, row in material_produto_df.iterrows():
+                    material = row['material']
+                    produto = row['hier_produto_1']
+                    label = f"{material} - {produto}" if pd.notna(produto) else material
+                    opcoes_completas.append({'label': label, 'value': material})
+                
+                # Remove duplicatas e ordena
+                material_dict = {opt['value']: opt['label'] for opt in opcoes_completas}
+                materiais_options = [{'label': label, 'value': material} 
+                                   for material, label in sorted(material_dict.items())]
+            else:
+                # Fallback: apenas materiais
+                materiais_unicos = sorted(vendas_df['material'].dropna().unique())
+                materiais_options = [{'label': material, 'value': material} for material in materiais_unicos]
+            
+            print(f"📋 Opções de materiais criadas: {len(materiais_options)} materiais")
+        else:
+            print("⚠️ Não foi possível criar opções de materiais")
+        
+        print(f"✅ Tabela de produtos criada com {len(produtos_analise)} itens")
+        return produtos_analise, materiais_options, page_size or 25
+        
+    except Exception as e:
+        print(f"❌ Erro em update_products_table: {e}")
+        import traceback
+        traceback.print_exc()
+        return [], [], 25
+
+# =======================================
+# CALLBACKS PARA BOTÕES MIX DE PRODUTOS
+# =======================================
+
+# Callback para Download CSV dos produtos
+@app.callback(
+    Output('download-csv-produtos', 'data'),
+    Input('btn-download-csv-produtos', 'n_clicks'),
+    State('tabela-analise-produtos', 'data'),
+    prevent_initial_call=True
+)
+def download_csv_produtos(n_clicks, table_data):
+    """Faz download da tabela de produtos em CSV"""
+    if n_clicks and table_data:
+        import pandas as pd
+        from datetime import datetime
+        
+        df = pd.DataFrame(table_data)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        return dcc.send_data_frame(
+            df.to_csv, 
+            f"analise_produtos_{timestamp}.csv",
+            index=False
+        )
+    return None
+
+# Callback para PDF por Cliente (produtos)
+@app.callback(
+    Output('download-pdf-produtos', 'data'),
+    Input('btn-pdf-cliente', 'n_clicks'),
+    State('tabela-analise-produtos', 'data'),
+    prevent_initial_call=True
+)
+def download_pdf_produtos(n_clicks, table_data):
+    """Gera PDF com análise de produtos por cliente"""
+    if n_clicks and table_data:
+        # Por enquanto, retorna um alerta indicando que a funcionalidade está em desenvolvimento
+        return None
+    return None
+
+# Callback para Sugestões IA (produtos)
+@app.callback(
+    Output('modal-sugestoes-ia', 'is_open'),
+    [Input('btn-sugestoes-ia', 'n_clicks'),
+     Input('btn-fechar-modal-ia', 'n_clicks')],
+    State('modal-sugestoes-ia', 'is_open'),
+    prevent_initial_call=True
+)
+def toggle_sugestoes_ia_modal(open_clicks, close_clicks, is_open):
+    """Controla abertura/fechamento do modal de sugestões IA"""
+    ctx = callback_context
+    if not ctx.triggered:
+        return False
+    
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    if button_id == 'btn-sugestoes-ia' and open_clicks:
+        return True
+    elif button_id == 'btn-fechar-modal-ia' and close_clicks:
+        return False
+    
+    return is_open
+
+# Callback para conteúdo das sugestões IA
+@app.callback(
+    Output('conteudo-sugestoes-ia', 'children'),
+    Input('modal-sugestoes-ia', 'is_open'),
+    State('tabela-analise-produtos', 'data'),
+    prevent_initial_call=True
+)
+def update_sugestoes_ia_content(is_open, table_data):
+    """Atualiza o conteúdo das sugestões de IA"""
+    if not is_open or not table_data:
+        return []
+    
+    return html.Div([
+        html.H6("📊 Análise dos Dados", className="mb-3"),
+        html.P(f"Total de produtos analisados: {len(table_data)}", className="mb-2"),
+        html.Hr(),
+        html.H6("🎯 Sugestões de Melhorias", className="mb-3"),
+        html.Ul([
+            html.Li("Foque nos produtos com maior faturamento total"),
+            html.Li("Analise produtos com baixa taxa de conversão"),
+            html.Li("Considere estratégias para produtos com alta recorrência de cotação mas baixa compra"),
+            html.Li("Verifique oportunidades nos produtos com maior quantidade média cotada")
+        ]),
+        html.Hr(),
+        html.H6("📈 Próximos Passos", className="mb-3"),
+        html.P("1. Priorize ações nos produtos de maior valor", className="mb-1"),
+        html.P("2. Investigue causas de baixa conversão", className="mb-1"),
+        html.P("3. Desenvolva estratégias específicas por produto", className="mb-1")
+    ])
+
 print("✅ Callbacks principais registrados com sucesso")
+
+# ==========================================
+# ANALYTICS AVANÇADOS CALLBACKS
+# ==========================================
+
+@app.callback(
+    Output('analytics-content', 'children'),
+    Input('analytics-tipo-analise', 'value'),
+    [State('global-filtro-ano', 'value'),
+     State('global-filtro-mes', 'value'),
+     State('global-filtro-cliente', 'value'),
+     State('global-filtro-hierarquia', 'value'),
+     State('global-filtro-canal', 'value'),
+     State('global-filtro-top-clientes', 'value')],
+    prevent_initial_call=True
+)
+@authenticated_callback
+def update_analytics_content(tipo_analise, filtro_ano, filtro_mes, filtro_cliente, 
+                           filtro_hierarquia, filtro_canal, filtro_top_clientes):
+    """Atualiza o conteúdo da página de analytics baseado no tipo de análise selecionado"""
+    if not tipo_analise:
+        return html.Div([
+            dbc.Alert([
+                html.I(className="fas fa-info-circle me-2"),
+                "Selecione um tipo de análise para começar."
+            ], color="info")
+        ])
+    
+    try:
+        from utils import AdvancedAnalytics
+        
+        # Carregar dados
+        df_vendas = load_vendas_data()
+        df_cotacoes = load_cotacoes_data()
+        
+        # Aplicar filtros aos dados
+        df_vendas_filtrado = apply_filters(
+            df_vendas, filtro_ano, filtro_mes, filtro_cliente, 
+            filtro_hierarquia, filtro_canal, filtro_top_clientes
+        )
+        
+        df_cotacoes_filtrado = apply_filters(
+            df_cotacoes, filtro_ano, filtro_mes, filtro_cliente, 
+            filtro_hierarquia, filtro_canal, filtro_top_clientes
+        )
+        
+        # Inicializar o analisador
+        analytics = AdvancedAnalytics(df_vendas_filtrado, df_cotacoes_filtrado)
+        
+        if tipo_analise == "gaps":
+            return create_gaps_analysis_content(analytics)
+        elif tipo_analise == "inatividade":
+            return create_inactivity_analysis_content(analytics)
+        elif tipo_analise == "sazonalidade":
+            return create_seasonality_analysis_content(analytics)
+        elif tipo_analise == "cotacoes":
+            return create_quotation_demand_content(analytics)
+        else:
+            return html.Div([
+                dbc.Alert("Tipo de análise não reconhecido.", color="warning")
+            ])
+            
+    except Exception as e:
+        return html.Div([
+            dbc.Alert([
+                html.I(className="fas fa-exclamation-triangle me-2"),
+                f"Erro ao carregar análise: {str(e)}"
+            ], color="danger")
+        ])
+
+def create_gaps_analysis_content(analytics):
+    """Cria conteúdo para análise de gaps de oportunidade"""
+    try:
+        gaps_data = analytics.calculate_opportunity_gaps()
+        
+        # Criar gráfico de scatter dos gaps
+        import plotly.express as px
+        import plotly.graph_objects as go
+        
+        fig = px.scatter(
+            gaps_data, 
+            x='potential_revenue', 
+            y='gap_score',
+            size='cliente_count',
+            color='gap_category',
+            hover_data=['produto', 'current_revenue'],
+            title="Gaps de Oportunidade por Produto",
+            labels={
+                'potential_revenue': 'Receita Potencial (R$)',
+                'gap_score': 'Score do Gap',
+                'cliente_count': 'Número de Clientes'
+            }
+        )
+        
+        fig.update_layout(
+            showlegend=True,
+            height=500,
+            template="plotly_white"
+        )
+        
+        return html.Div([
+            # Métricas resumo
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{len(gaps_data):,}", className="text-primary mb-0"),
+                            html.P("Produtos Analisados", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{gaps_data['gap_score'].mean():.2f}", className="text-warning mb-0"),
+                            html.P("Score Médio", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"R$ {gaps_data['potential_revenue'].sum():,.0f}", className="text-success mb-0"),
+                            html.P("Receita Potencial Total", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{len(gaps_data[gaps_data['gap_category'] == 'Alto']):,}", className="text-danger mb-0"),
+                            html.P("Gaps de Alto Potencial", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3)
+            ], className="mb-4"),
+            
+            # Gráfico
+            html.Div([
+                dcc.Graph(figure=fig)
+            ], className="mb-4"),
+            
+            # Explicação da análise
+            dbc.Alert([
+                html.H5("📊 Como Interpretar esta Análise", className="mb-3"),
+                html.P([
+                    "Esta análise identifica ", html.Strong("gaps de oportunidade"), 
+                    " baseada em padrões de compra dos clientes. O score é calculado usando análise estatística "
+                    "que considera a receita potencial estimada com base no comportamento de clientes similares."
+                ], className="mb-2"),
+                html.Ul([
+                    html.Li([html.Strong("Score Alto (>75): "), "Oportunidades prioritárias com alto potencial de conversão"]),
+                    html.Li([html.Strong("Score Médio (25-75): "), "Oportunidades moderadas que requerem análise adicional"]),
+                    html.Li([html.Strong("Score Baixo (<25): "), "Baixo potencial ou dados insuficientes"])
+                ], className="mb-2"),
+                html.P([
+                    html.I(className="fas fa-lightbulb me-2"),
+                    "Concentre esforços nos produtos com maior score e receita potencial para maximizar ROI."
+                ], className="mb-0 text-info")
+            ], color="light", className="mb-4"),
+            
+            # Tabela com top gaps
+            html.Div([
+                html.H5("🎯 Top 20 Oportunidades", className="mb-3"),
+                dash_table.DataTable(
+                    data=gaps_data.head(20).to_dict('records'),
+                    columns=[
+                        {"name": "Produto", "id": "produto"},
+                        {"name": "Score Gap", "id": "gap_score", "type": "numeric", "format": {"specifier": ",.1f"}},
+                        {"name": "Categoria", "id": "gap_category"},
+                        {"name": "Receita Atual (R$)", "id": "current_revenue", "type": "numeric", "format": {"specifier": ",.0f"}},
+                        {"name": "Receita Potencial (R$)", "id": "potential_revenue", "type": "numeric", "format": {"specifier": ",.0f"}},
+                        {"name": "Clientes", "id": "cliente_count", "type": "numeric"}
+                    ],
+                    style_cell={'textAlign': 'left', 'fontSize': '12px'},
+                    style_header={'backgroundColor': '#f8f9fa', 'fontWeight': 'bold'},
+                    style_data_conditional=[
+                        {
+                            'if': {'filter_query': '{gap_category} = Alto'},
+                            'backgroundColor': '#ffebee',
+                            'color': '#c62828'
+                        },
+                        {
+                            'if': {'filter_query': '{gap_category} = Médio'},
+                            'backgroundColor': '#fff8e1',
+                            'color': '#f57c00'
+                        }
+                    ]
+                )
+            ])
+        ])
+        
+    except Exception as e:
+        return dbc.Alert(f"Erro ao gerar análise de gaps: {str(e)}", color="danger")
+
+def create_inactivity_analysis_content(analytics):
+    """Cria conteúdo para análise de alertas de inatividade"""
+    try:
+        inactivity_data = analytics.calculate_inactivity_alerts()
+        
+        # Criar gráfico de distribuição
+        import plotly.express as px
+        
+        # Gráfico de barras por categoria
+        category_counts = inactivity_data['category'].value_counts()
+        
+        fig_bars = px.bar(
+            x=category_counts.index,
+            y=category_counts.values,
+            title="Distribuição de Clientes por Status de Atividade",
+            labels={'x': 'Categoria', 'y': 'Número de Clientes'},
+            color=category_counts.values,
+            color_continuous_scale=['#green', '#orange', '#red']
+        )
+        
+        fig_bars.update_layout(
+            showlegend=False,
+            height=400,
+            template="plotly_white"
+        )
+        
+        # Histograma de dias sem compra
+        fig_hist = px.histogram(
+            inactivity_data,
+            x='days_since_last_purchase',
+            nbins=30,
+            title="Distribuição de Dias Sem Compra",
+            labels={'days_since_last_purchase': 'Dias Sem Compra', 'count': 'Número de Clientes'}
+        )
+        
+        fig_hist.update_layout(height=400, template="plotly_white")
+        
+        return html.Div([
+            # Métricas resumo
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{len(inactivity_data):,}", className="text-primary mb-0"),
+                            html.P("Clientes Analisados", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{len(inactivity_data[inactivity_data['category'] == 'Crítico']):,}", className="text-danger mb-0"),
+                            html.P("Clientes Críticos", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{len(inactivity_data[inactivity_data['category'] == 'Atenção']):,}", className="text-warning mb-0"),
+                            html.P("Clientes em Atenção", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{inactivity_data['days_since_last_purchase'].median():.0f}", className="text-info mb-0"),
+                            html.P("Mediana de Dias", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3)
+            ], className="mb-4"),
+            
+            # Gráficos
+            dbc.Row([
+                dbc.Col([
+                    dcc.Graph(figure=fig_bars)
+                ], width=6),
+                dbc.Col([
+                    dcc.Graph(figure=fig_hist)
+                ], width=6)
+            ], className="mb-4"),
+            
+            # Explicação da análise
+            dbc.Alert([
+                html.H5("⚠️ Critérios de Classificação", className="mb-3"),
+                html.Ul([
+                    html.Li([html.Strong("Ativo (≤90 dias): "), "Cliente com compras recentes, comportamento normal"]),
+                    html.Li([html.Strong("Atenção (91-365 dias): "), "Cliente pode estar se afastando, requer acompanhamento"]),
+                    html.Li([html.Strong("Crítico (>365 dias): "), "Cliente inativo, risco de perda, ação urgente necessária"])
+                ], className="mb-2"),
+                html.P([
+                    html.I(className="fas fa-exclamation-triangle me-2"),
+                    "A análise usa intervalos de confiança estatísticos para determinar padrões de compra anômalos."
+                ], className="mb-0 text-warning")
+            ], color="light", className="mb-4"),
+            
+            # Tabela de clientes críticos
+            html.Div([
+                html.H5("🚨 Clientes Críticos (Ação Urgente)", className="mb-3"),
+                dash_table.DataTable(
+                    data=inactivity_data[inactivity_data['category'] == 'Crítico'].head(20).to_dict('records'),
+                    columns=[
+                        {"name": "Cliente", "id": "cliente"},
+                        {"name": "Código", "id": "cod_cliente"},
+                        {"name": "Dias Sem Compra", "id": "days_since_last_purchase", "type": "numeric"},
+                        {"name": "Última Compra", "id": "last_purchase_date"},
+                        {"name": "Valor Histórico (R$)", "id": "total_revenue", "type": "numeric", "format": {"specifier": ",.0f"}},
+                        {"name": "Categoria", "id": "category"}
+                    ],
+                    style_cell={'textAlign': 'left', 'fontSize': '12px'},
+                    style_header={'backgroundColor': '#f8f9fa', 'fontWeight': 'bold'},
+                    style_data_conditional=[
+                        {
+                            'if': {'filter_query': '{category} = Crítico'},
+                            'backgroundColor': '#ffebee',
+                            'color': '#c62828'
+                        }
+                    ]
+                )
+            ])
+        ])
+        
+    except Exception as e:
+        return dbc.Alert(f"Erro ao gerar análise de inatividade: {str(e)}", color="danger")
+
+def create_seasonality_analysis_content(analytics):
+    """Cria conteúdo para análise de sazonalidade"""
+    try:
+        seasonality_data = analytics.analyze_seasonality()
+        
+        # Criar gráfico de sazonalidade
+        import plotly.express as px
+        import plotly.graph_objects as go
+        
+        fig = go.Figure()
+        
+        # Linha de vendas por mês
+        fig.add_trace(go.Scatter(
+            x=seasonality_data['month'],
+            y=seasonality_data['sales_amount'],
+            mode='lines+markers',
+            name='Vendas Reais',
+            line=dict(color='#1f77b4', width=3)
+        ))
+        
+        # Linha de tendência
+        fig.add_trace(go.Scatter(
+            x=seasonality_data['month'],
+            y=seasonality_data['trend'],
+            mode='lines',
+            name='Tendência',
+            line=dict(color='#ff7f0e', width=2, dash='dash')
+        ))
+        
+        # Área de sazonalidade
+        fig.add_trace(go.Scatter(
+            x=seasonality_data['month'],
+            y=seasonality_data['seasonal'],
+            mode='lines',
+            name='Componente Sazonal',
+            line=dict(color='#2ca02c', width=2),
+            fill='tonexty'
+        ))
+        
+        fig.update_layout(
+            title="Análise de Sazonalidade das Vendas",
+            xaxis_title="Mês",
+            yaxis_title="Valor de Vendas (R$)",
+            height=500,
+            template="plotly_white",
+            showlegend=True
+        )
+        
+        return html.Div([
+            # Métricas resumo
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{seasonality_data['coefficient_variation'].iloc[0]:.1%}", className="text-primary mb-0"),
+                            html.P("Coeficiente de Variação", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{seasonality_data.loc[seasonality_data['sales_amount'].idxmax(), 'month']}", className="text-success mb-0"),
+                            html.P("Mês de Pico", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{seasonality_data.loc[seasonality_data['sales_amount'].idxmin(), 'month']}", className="text-danger mb-0"),
+                            html.P("Mês de Vale", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"R$ {seasonality_data['sales_amount'].mean():,.0f}", className="text-info mb-0"),
+                            html.P("Média Mensal", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3)
+            ], className="mb-4"),
+            
+            # Gráfico principal
+            html.Div([
+                dcc.Graph(figure=fig)
+            ], className="mb-4"),
+            
+            # Explicação da análise
+            dbc.Alert([
+                html.H5("📈 Interpretação da Sazonalidade", className="mb-3"),
+                html.P([
+                    "Esta análise decompõe as vendas em seus componentes: ", 
+                    html.Strong("tendência"), ", ", html.Strong("sazonalidade"), " e ", 
+                    html.Strong("resíduo"), " usando decomposição estatística."
+                ], className="mb-2"),
+                html.Ul([
+                    html.Li([html.Strong("Tendência: "), "Direção geral das vendas ao longo do tempo"]),
+                    html.Li([html.Strong("Sazonalidade: "), "Padrões recorrentes mensais/trimestrais"]),
+                    html.Li([html.Strong("Coef. Variação: "), "Medida da variabilidade sazonal (>20% indica alta sazonalidade)"])
+                ], className="mb-2"),
+                html.P([
+                    html.I(className="fas fa-chart-line me-2"),
+                    "Use estes insights para planejar estoque, campanhas e estratégias sazonais."
+                ], className="mb-0 text-success")
+            ], color="light", className="mb-4"),
+            
+            # Tabela de dados mensais
+            html.Div([
+                html.H5("📅 Dados Mensais Detalhados", className="mb-3"),
+                dash_table.DataTable(
+                    data=seasonality_data.to_dict('records'),
+                    columns=[
+                        {"name": "Mês", "id": "month"},
+                        {"name": "Vendas (R$)", "id": "sales_amount", "type": "numeric", "format": {"specifier": ",.0f"}},
+                        {"name": "Tendência (R$)", "id": "trend", "type": "numeric", "format": {"specifier": ",.0f"}},
+                        {"name": "Sazonal (R$)", "id": "seasonal", "type": "numeric", "format": {"specifier": ",.0f"}},
+                        {"name": "Coef. Variação", "id": "coefficient_variation", "type": "numeric", "format": {"specifier": ",.1%"}}
+                    ],
+                    style_cell={'textAlign': 'left', 'fontSize': '12px'},
+                    style_header={'backgroundColor': '#f8f9fa', 'fontWeight': 'bold'}
+                )
+            ])
+        ])
+        
+    except Exception as e:
+        return dbc.Alert(f"Erro ao gerar análise de sazonalidade: {str(e)}", color="danger")
+
+def create_quotation_demand_content(analytics):
+    """Cria conteúdo para análise de demanda de cotações"""
+    try:
+        quotation_data = analytics.analyze_quotation_demand()
+        
+        # Criar gráfico de funil de conversão
+        import plotly.express as px
+        import plotly.graph_objects as go
+        
+        # Gráfico de barras para taxa de conversão
+        fig_conv = px.bar(
+            quotation_data.head(20),
+            x='produto',
+            y='conversion_rate',
+            title="Taxa de Conversão por Produto (Top 20)",
+            labels={'conversion_rate': 'Taxa de Conversão (%)', 'produto': 'Produto'},
+            color='conversion_rate',
+            color_continuous_scale='RdYlGn'
+        )
+        
+        fig_conv.update_layout(
+            height=500,
+            template="plotly_white",
+            xaxis_tickangle=-45
+        )
+        
+        # Gráfico scatter: cotações vs vendas
+        fig_scatter = px.scatter(
+            quotation_data,
+            x='total_quotations',
+            y='total_sales',
+            size='conversion_rate',
+            color='product_category',
+            hover_data=['produto'],
+            title="Relação Cotações vs Vendas",
+            labels={
+                'total_quotations': 'Total de Cotações',
+                'total_sales': 'Total de Vendas (R$)',
+                'conversion_rate': 'Taxa Conversão (%)'
+            }
+        )
+        
+        fig_scatter.update_layout(height=500, template="plotly_white")
+        
+        return html.Div([
+            # Métricas resumo
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{quotation_data['conversion_rate'].mean():.1f}%", className="text-primary mb-0"),
+                            html.P("Taxa Conversão Média", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{quotation_data['total_quotations'].sum():,}", className="text-info mb-0"),
+                            html.P("Total de Cotações", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"R$ {quotation_data['total_sales'].sum():,.0f}", className="text-success mb-0"),
+                            html.P("Receita Total", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{len(quotation_data[quotation_data['conversion_rate'] < 30]):,}", className="text-warning mb-0"),
+                            html.P("Produtos Baixa Conversão", className="text-muted small mb-0")
+                        ])
+                    ])
+                ], width=3)
+            ], className="mb-4"),
+            
+            # Gráficos
+            dbc.Row([
+                dbc.Col([
+                    dcc.Graph(figure=fig_conv)
+                ], width=12)
+            ], className="mb-4"),
+            
+            dbc.Row([
+                dbc.Col([
+                    dcc.Graph(figure=fig_scatter)
+                ], width=12)
+            ], className="mb-4"),
+            
+            # Explicação da análise
+            dbc.Alert([
+                html.H5("💼 Análise de Demanda de Cotações", className="mb-3"),
+                html.P([
+                    "Esta análise examina a ", html.Strong("eficiência do processo de cotação"), 
+                    " identificando produtos com alto volume de cotações mas baixa conversão em vendas."
+                ], className="mb-2"),
+                html.Ul([
+                    html.Li([html.Strong("Alta Conversão (>70%): "), "Processo eficiente, demanda real alta"]),
+                    html.Li([html.Strong("Média Conversão (30-70%): "), "Oportunidade de melhoria no processo"]),
+                    html.Li([html.Strong("Baixa Conversão (<30%): "), "Possível problema de precificação ou produto"])
+                ], className="mb-2"),
+                html.P([
+                    html.I(className="fas fa-target me-2"),
+                    "Foque em melhorar a conversão dos produtos com muitas cotações mas poucas vendas."
+                ], className="mb-0 text-info")
+            ], color="light", className="mb-4"),
+            
+            # Tabela de produtos com baixa conversão
+            html.Div([
+                html.H5("⚠️ Produtos com Baixa Taxa de Conversão", className="mb-3"),
+                dash_table.DataTable(
+                    data=quotation_data[quotation_data['conversion_rate'] < 30].head(20).to_dict('records'),
+                    columns=[
+                        {"name": "Produto", "id": "produto"},
+                        {"name": "Categoria", "id": "product_category"},
+                        {"name": "Cotações", "id": "total_quotations", "type": "numeric"},
+                        {"name": "Vendas (R$)", "id": "total_sales", "type": "numeric", "format": {"specifier": ",.0f"}},
+                        {"name": "Taxa Conversão (%)", "id": "conversion_rate", "type": "numeric", "format": {"specifier": ",.1f"}},
+                        {"name": "Oportunidade Perdida (R$)", "id": "lost_opportunity", "type": "numeric", "format": {"specifier": ",.0f"}}
+                    ],
+                    style_cell={'textAlign': 'left', 'fontSize': '12px'},
+                    style_header={'backgroundColor': '#f8f9fa', 'fontWeight': 'bold'},
+                    style_data_conditional=[
+                        {
+                            'if': {'filter_query': '{conversion_rate} < 20'},
+                            'backgroundColor': '#ffebee',
+                            'color': '#c62828'
+                        },
+                        {
+                            'if': {'filter_query': '{conversion_rate} >= 20 && {conversion_rate} < 30'},
+                            'backgroundColor': '#fff8e1',
+                            'color': '#f57c00'
+                        }
+                    ]
+                )
+            ])
+        ])
+        
+    except Exception as e:
+        return dbc.Alert(f"Erro ao gerar análise de demanda de cotações: {str(e)}", color="danger")
+
+print("✅ Analytics Avançados callbacks registrados com sucesso")

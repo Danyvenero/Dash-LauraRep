@@ -20,6 +20,7 @@ from .db import (
 from .data_loader import DataLoader
 from .kpis import KPICalculator
 from .visualizations import VisualizationGenerator
+from .advanced_analytics import AdvancedAnalytics
 from .security import (
     SecurityManager, 
     require_auth, 
@@ -45,8 +46,9 @@ __all__ = [
     'SENTINEL_ALL',
     '_norm_year',
     'DataLoader',
-    'KPICalculator', 
+    'KPICalculator',
     'VisualizationGenerator',
+    'AdvancedAnalytics',
     'SecurityManager',
     'require_auth',
     'is_authenticated',

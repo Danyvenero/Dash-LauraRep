@@ -3,6 +3,8 @@ Módulo de layouts da aplicação
 """
 
 from dash import html, dcc, dash_table
+from dash.dash_table.Format import Format, Scheme
+from dash.dash_table import FormatTemplate
 import dash_bootstrap_components as dbc
 from webapp.auth import require_login, create_user_info_component, create_login_layout
 from utils import is_authenticated
@@ -150,6 +152,9 @@ def create_sidebar():
                     dcc.Link("🤖 Insights IA", href="/app/insights", className="sidebar-menu-item")
                 ]),
                 html.Li([
+                    dcc.Link("📊 Analytics Avançados", href="/app/analytics", className="sidebar-menu-item")
+                ]),
+                html.Li([
                     dcc.Link("⚙️ Configurações", href="/app/config", className="sidebar-menu-item")
                 ])
             ], className="sidebar-menu")
@@ -275,12 +280,49 @@ def create_clients_layout():
                 page_action="native",
                 page_current=0,
                 page_size=25,
-                style_cell={'textAlign': 'left', 'fontSize': '12px'},
+                row_selectable="multi",
+                selected_rows=[],
+                style_cell={
+                    'textAlign': 'left', 
+                    'fontSize': '12px',
+                    'fontFamily': 'Arial, sans-serif',
+                    'padding': '8px',
+                    'border': '1px solid #ddd'
+                },
+                style_header={
+                    'backgroundColor': '#f8f9fa',
+                    'fontWeight': 'bold',
+                    'color': '#333',
+                    'border': '1px solid #ddd',
+                    'textAlign': 'center'
+                },
+                style_data={
+                    'backgroundColor': '#ffffff',
+                    'color': '#333',
+                    'border': '1px solid #ddd'
+                },
                 style_data_conditional=[
+                    {
+                        'if': {'row_index': 'odd'},
+                        'backgroundColor': '#f8f9fa'
+                    },
+                    {
+                        'if': {'state': 'selected'},
+                        'backgroundColor': '#e3f2fd',
+                        'border': '1px solid #1976d2'
+                    },
+                    {
+                        'if': {'column_id': 'cod_cliente'},
+                        'fontWeight': 'bold',
+                        'width': '80px'
+                    },
+                    {
+                        'if': {'column_id': 'cliente'},
+                        'width': '200px'
+                    },
                     {
                         'if': {'filter_query': '{dias_sem_compra} > 365'},
                         'backgroundColor': '#ffebee',
-                        #'color': 'black',
                         'color': '#f5697e',
                         'fontWeight': 'bold'
                     },
@@ -304,7 +346,10 @@ def create_clients_layout():
         html.Div([
             html.H5("Distribuição de Status dos Clientes", className="mb-3"),
             dcc.Graph(id="grafico-status-clientes")
-        ], className="graph-container")
+        ], className="graph-container"),
+        
+        # Componente de download para clientes
+        dcc.Download(id="download-csv-clientes")
     ])
 
 @require_login
@@ -360,8 +405,207 @@ def create_products_layout():
             dcc.Graph(id="grafico-pareto-produtos")
         ], className="graph-container mb-4"),
         
+        # Tabela de Análise de Produtos
+        html.Div([
+            html.H5("Análise Detalhada de Produtos", className="mb-3"),
+            dbc.Row([
+                dbc.Col([
+                    html.Label("Filtrar por Material:", className="small"),
+                    dcc.Dropdown(
+                        id="filter-material-table",
+                        placeholder="Todos os materiais",
+                        multi=True,
+                        searchable=True,
+                        clearable=True,
+                        style={'fontSize': '14px'},
+                        options=[
+                            {'label': 'MAT001 - Motor Elétrico 1CV', 'value': 'MAT001'},
+                            {'label': 'MAT002 - Motor Elétrico 2CV', 'value': 'MAT002'},
+                            {'label': 'MAT003 - Redutor de Velocidade', 'value': 'MAT003'}
+                        ]
+                    )
+                ], width=12, md=6),
+                dbc.Col([
+                    html.Label("Tamanho da página:", className="small"),
+                    dcc.Dropdown(
+                        id="table-page-size-produtos",
+                        options=[
+                            {"label": "10", "value": 10},
+                            {"label": "25", "value": 25},
+                            {"label": "50", "value": 50},
+                            {"label": "100", "value": 100}
+                        ],
+                        value=25
+                    )
+                ], width=12, md=6)
+            ], className="mb-3"),
+            
+            # Botões de controle da tabela
+            dbc.Row([
+                dbc.Col([
+                    dbc.ButtonGroup([
+                        dbc.Button("✅ Selecionar Todos", id="btn-select-all-produtos", color="secondary", outline=True, size="sm"),
+                        dbc.Button("❌ Desmarcar Todos", id="btn-deselect-all-produtos", color="secondary", outline=True, size="sm"),
+                        dbc.Button("🗑️ Limpar Filtros", id="btn-clear-filters-produtos", color="warning", outline=True, size="sm")
+                    ], className="mb-2")
+                ], width=12, className="d-flex justify-content-start")
+            ], className="mb-2"),
+            
+            dash_table.DataTable(
+                id="tabela-analise-produtos",
+                columns=[
+                    {"name": "Material", "id": "material", "type": "text"},
+                    {"name": "Produto", "id": "produto", "type": "text"},
+                    {"name": "Hierarquia", "id": "hierarquia", "type": "text"},
+                    {"name": "Recorrência Compra", "id": "recorrencia_compra", "type": "numeric", "format": {"specifier": ",.0f"}},
+                    {"name": "Recorrência Cotação", "id": "recorrencia_cotacao", "type": "numeric", "format": {"specifier": ",.0f"}},
+                    {"name": "Taxa Conversão (%)", "id": "taxa_conversao", "type": "numeric", "format": {"specifier": ",.1f"}},
+                    {"name": "Qty Média Cotada", "id": "qty_media_cotada", "type": "numeric", "format": {"specifier": ",.2f"}},
+                    {"name": "Valor Médio", "id": "valor_medio", "type": "numeric", "format": FormatTemplate.money(2)},
+                    {"name": "Faturamento Total", "id": "faturamento_total", "type": "numeric", "format": FormatTemplate.money(2)}
+                ],
+                data=[
+                    {
+                        'material': 'MAT001',
+                        'produto': 'Motor Elétrico 1CV',
+                        'hierarquia': 'MOTORES',
+                        'recorrencia_compra': 5,
+                        'recorrencia_cotacao': 8,
+                        'taxa_conversao': 62.5,
+                        'qty_media_cotada': 3.2,
+                        'valor_medio': 1550.00,
+                        'faturamento_total': 7750.00
+                    },
+                    {
+                        'material': 'MAT002',
+                        'produto': 'Motor Elétrico 2CV',
+                        'hierarquia': 'MOTORES',
+                        'recorrencia_compra': 3,
+                        'recorrencia_cotacao': 5,
+                        'taxa_conversao': 60.0,
+                        'qty_media_cotada': 2.5,
+                        'valor_medio': 2200.00,
+                        'faturamento_total': 6600.00
+                    },
+                    {
+                        'material': 'MAT003',
+                        'produto': 'Redutor de Velocidade',
+                        'hierarquia': 'REDUTORES',
+                        'recorrencia_compra': 4,
+                        'recorrencia_cotacao': 6,
+                        'taxa_conversao': 66.7,
+                        'qty_media_cotada': 4.0,
+                        'valor_medio': 800.00,
+                        'faturamento_total': 3200.00
+                    }
+                ],
+                page_size=25,
+                page_action="native",
+                sort_action="native",
+                filter_action="native",
+                row_selectable="multi",
+                selected_rows=[],
+                style_cell={
+                    'textAlign': 'left',
+                    'fontSize': '12px',
+                    'fontFamily': 'Arial, sans-serif',
+                    'padding': '8px',
+                    'border': '1px solid #ddd'
+                },
+                style_header={
+                    'backgroundColor': '#f8f9fa',
+                    'fontWeight': 'bold',
+                    'color': '#333',
+                    'border': '1px solid #ddd',
+                    'textAlign': 'center'
+                },
+                style_data={
+                    'backgroundColor': '#ffffff',
+                    'color': '#333',
+                    'border': '1px solid #ddd'
+                },
+                style_data_conditional=[
+                    {
+                        'if': {'row_index': 'odd'},
+                        'backgroundColor': '#f8f9fa'
+                    },
+                    {
+                        'if': {'state': 'selected'},
+                        'backgroundColor': '#e3f2fd',
+                        'border': '1px solid #1976d2'
+                    },
+                    {
+                        'if': {'column_id': 'material'},
+                        'fontWeight': 'bold',
+                        'width': '100px'
+                    },
+                    {
+                        'if': {'column_id': 'produto'},
+                        'width': '200px'
+                    },
+                    {
+                        'if': {'column_id': 'hierarquia'},
+                        'width': '120px',
+                        'color': '#666'
+                    }
+                ]
+            )
+        ], className="graph-container mb-4"),
+        
         # Insights da IA
-        html.Div(id="insights-ia-produtos", className="mb-4")
+        html.Div(id="insights-ia-produtos", className="mb-4"),
+        
+        # Componentes de download
+        dcc.Download(id="download-csv-produtos"),
+        dcc.Download(id="download-pdf-produtos"),
+        
+        # Modal de Sugestões IA
+        dbc.Modal([
+            dbc.ModalHeader("🤖 Sugestões de Inteligência Artificial"),
+            dbc.ModalBody([
+                html.Div(id="conteudo-sugestoes-ia")
+            ]),
+            dbc.ModalFooter([
+                dbc.Button("Fechar", id="btn-fechar-modal-ia", className="ms-auto", n_clicks=0)
+            ])
+        ], id="modal-sugestoes-ia", size="lg", is_open=False)
+    ])
+
+@require_login
+def create_analytics_layout():
+    """Cria layout da página de Analytics Avançados"""
+    return html.Div([
+        # Header com seletor de análise
+        dbc.Row([
+            dbc.Col([
+                html.H4("📊 Analytics Avançados", className="mb-0"),
+                html.P("Análises estatísticas e insights inteligentes", className="text-muted small")
+            ], width=8),
+            dbc.Col([
+                dcc.Dropdown(
+                    id="analytics-tipo-analise",
+                    options=[
+                        {"label": "🎯 Gaps de Oportunidade", "value": "gaps"},
+                        {"label": "⚠️ Alertas de Inatividade", "value": "inatividade"},
+                        {"label": "📈 Análise de Sazonalidade", "value": "sazonalidade"},
+                        {"label": "📋 Demanda de Cotações", "value": "cotacoes"}
+                    ],
+                    value="gaps",
+                    placeholder="Selecione o tipo de análise"
+                )
+            ], width=4)
+        ], className="mb-4"),
+        
+        # Área de conteúdo dinâmico
+        html.Div(id="analytics-content"),
+        
+        # Componentes de download
+        dcc.Download(id="download-analytics-csv"),
+        dcc.Download(id="download-analytics-pdf"),
+        
+        # Stores para dados
+        dcc.Store(id="analytics-data-store"),
+        dcc.Store(id="analytics-config-store")
     ])
 
 @require_login
@@ -627,6 +871,8 @@ def get_layout(pathname):
     elif pathname == '/app/insights':
         return create_main_layout()
     elif pathname == '/app/config':
+        return create_main_layout()
+    elif pathname == '/app/analytics':
         return create_main_layout()
     else:
         return html.Div([
