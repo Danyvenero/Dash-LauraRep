@@ -28,8 +28,9 @@ def create_sidebar():
                     id='global-filtro-ano',
                     min=2018,
                     max=datetime.datetime.now().year + 1,
-                    value=[2023, datetime.datetime.now().year],
-                    marks={year: str(year) for year in range(2018, datetime.datetime.now().year + 2, 2)},
+                    step=1,
+                    value=[2018, datetime.datetime.now().year],
+                    marks={year: str(year) for year in range(2018, datetime.datetime.now().year + 1, 1)},
                     tooltip={"placement": "bottom", "always_visible": True},
                     className="mb-3"
                 )
@@ -42,6 +43,7 @@ def create_sidebar():
                     id='global-filtro-mes',
                     min=1,
                     max=12,
+                    step=1,
                     value=[1, 12],
                     marks={i: str(i) for i in range(1, 13)},
                     tooltip={"placement": "bottom", "always_visible": True},
@@ -49,6 +51,19 @@ def create_sidebar():
                 )
             ], className="mb-3"),
             
+            # Filtro de Unidade de Negócios
+            # html.Div([
+            #     html.Label("BU:", className="text-white small"),
+            #     dcc.Dropdown(
+            #         id='global-filtro-bu',
+            #         options=[],
+            #         value=None,
+            #         multi=True,
+            #         placeholder="Selecione as BUs...",
+            #         className="mb-3"
+            #     )
+            # ], className="mb-3"),
+
             # Filtro de Cliente
             html.Div([
                 html.Label("Cliente:", className="text-white small"),
@@ -96,7 +111,7 @@ def create_sidebar():
                     type="number",
                     value=10,
                     min=1,
-                    max=100,
+                    max=1500,
                     className="mb-3"
                 )
             ], className="mb-3"),
@@ -226,12 +241,13 @@ def create_clients_layout():
                 dcc.Dropdown(
                     id="table-page-size-clientes",
                     options=[
+                        {"label": "5", "value": 5},
                         {"label": "10", "value": 10},
                         {"label": "25", "value": 25},
                         {"label": "50", "value": 50},
                         {"label": "100", "value": 100}
                     ],
-                    value=25,
+                    value=5,
                     clearable=False
                 )
             ], width=12, md=4)
@@ -248,10 +264,10 @@ def create_clients_layout():
                     {"name": "Freq. Média (dias)", "id": "frequencia_media_compra", "type": "numeric"},
                     {"name": "Mix Produtos", "id": "mix_produtos", "type": "numeric"},
                     {"name": "% Mix", "id": "percentual_mix", "type": "numeric", "format": {"specifier": ".1f"}},
-                    {"name": "UN", "id": "unidades_negocio", "type": "text"},
                     {"name": "Cotados", "id": "produtos_cotados", "type": "numeric"},
                     {"name": "Comprados", "id": "produtos_comprados", "type": "numeric"},
-                    {"name": "% Não Comprado", "id": "perc_nao_comprado", "type": "numeric", "format": {"specifier": ".1f"}}
+                    {"name": "% Não Comprado", "id": "perc_nao_comprado", "type": "numeric", "format": {"specifier": ".1f"}},
+                    {"name": "UN", "id": "unidades_negocio", "type": "text"}
                 ],
                 data=[],
                 filter_action="native",
@@ -264,17 +280,21 @@ def create_clients_layout():
                     {
                         'if': {'filter_query': '{dias_sem_compra} > 365'},
                         'backgroundColor': '#ffebee',
-                        'color': 'black',
+                        #'color': 'black',
+                        'color': '#f5697e',
+                        'fontWeight': 'bold'
                     },
                     {
                         'if': {'filter_query': '{dias_sem_compra} > 90 && {dias_sem_compra} <= 365'},
                         'backgroundColor': '#fff8e1',
-                        'color': 'black',
+                        'color': '#fac002',
+                        'fontWeight': 'bold'
                     },
                     {
                         'if': {'filter_query': '{dias_sem_compra} <= 90'},
                         'backgroundColor': '#e8f5e8',
-                        'color': 'black',
+                        'color': '#456945',
+                        'fontWeight': 'bold'
                     }
                 ]
             )
@@ -296,18 +316,12 @@ def create_products_layout():
             dbc.Col([
                 dbc.Card([
                     dbc.CardBody([
-                        html.H6("Filtros de Visualização"),
+                        html.H6("Filtros de Visualização", className="mb-3"),
                         dbc.Row([
                             dbc.Col([
                                 html.Label("Top Produtos:", className="small"),
                                 dbc.Input(id="filter-top-produtos", type="number", value=20, min=5, max=50)
                             ], width=6),
-                            dbc.Col([
-                                html.Label("Top Clientes:", className="small"),
-                                dbc.Input(id="filter-top-clientes-bolhas", type="number", value=20, min=5, max=50)
-                            ], width=6)
-                        ], className="mb-2"),
-                        dbc.Row([
                             dbc.Col([
                                 html.Label("Paleta de Cores:", className="small"),
                                 dcc.Dropdown(
@@ -320,18 +334,18 @@ def create_products_layout():
                                     ],
                                     value="weg_blue"
                                 )
-                            ], width=12)
+                            ], width=6)
                         ])
                     ])
                 ])
-            ], width=12, md=4),
+            ], width=12, md=8),
             dbc.Col([
                 dbc.ButtonGroup([
                     dbc.Button("📥 Download CSV", id="btn-download-csv-produtos", color="primary"),
                     dbc.Button("📄 PDF por Cliente", id="btn-pdf-cliente", color="success"),
                     dbc.Button("🤖 Sugestões IA", id="btn-sugestoes-ia", color="info")
-                ], className="mb-2")
-            ], width=12, md=8, className="d-flex align-items-end")
+                ], className="mb-2 d-flex justify-content-end")
+            ], width=12, md=4, className="d-flex align-items-center justify-content-end")
         ], className="mb-4"),
         
         # Gráfico de bolhas

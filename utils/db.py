@@ -463,8 +463,11 @@ def get_latest_dataset() -> Optional[Dict]:
         }
     return None
 
+from .cache_manager import cached_dataframe
+
+@cached_dataframe(ttl_seconds=300)  # Cache por 5 minutos
 def load_vendas_data(dataset_id: Optional[int] = None) -> pd.DataFrame:
-    """Carrega dados de vendas do banco"""
+    """Carrega dados de vendas do banco com cache"""
     conn = get_connection()
     
     if dataset_id:
@@ -489,8 +492,9 @@ def load_vendas_data(dataset_id: Optional[int] = None) -> pd.DataFrame:
     
     return df
 
+@cached_dataframe(ttl_seconds=300)  # Cache por 5 minutos
 def load_cotacoes_data(dataset_id: Optional[int] = None) -> pd.DataFrame:
-    """Carrega dados de cotações do banco"""
+    """Carrega dados de cotações do banco com cache"""
     conn = get_connection()
     
     if dataset_id:
