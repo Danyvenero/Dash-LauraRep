@@ -85,7 +85,6 @@ def apply_filters(df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia,
                 print(f"   ⚠️ Range padrão [0, 365] - não aplicando filtro")
             elif 'data' in df_filtrado.columns and 'cod_cliente' in df_filtrado.columns:
                 from datetime import datetime, timedelta
-                import pandas as pd
                 
                 # Converte a coluna data para datetime se necessário
                 df_filtrado['data'] = pd.to_datetime(df_filtrado['data'])
@@ -143,6 +142,43 @@ def apply_filters(df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia,
     except Exception as e:
         print(f"   ❌ Erro ao aplicar filtros: {e}")
         return df
+
+def determine_hierarchy_level(df_filtrado, filtro_hierarquia):
+    """
+    Determina qual nível de hierarquia usar baseado na lógica inteligente:
+    - Se nenhum filtro: mostra hier_produto_1
+    - Se filtro de hier_produto_1: mostra hier_produto_2
+    - Se filtro de hier_produto_2: mostra hier_produto_3
+    - Se filtro de hier_produto_3: mostra produtos individuais (top N)
+    """
+    
+    # Se não há filtro de hierarquia, usa o nível 1 (padrão)
+    if not filtro_hierarquia or not isinstance(filtro_hierarquia, list) or len(filtro_hierarquia) == 0:
+        print("   🎯 Sem filtro hierarquia - usando hier_produto_1")
+        return 1, 'hier_produto_1'
+    
+    # Verifica em qual nível de hierarquia estão os valores filtrados
+    hierarchy_cols = ['hier_produto_1', 'hier_produto_2', 'hier_produto_3']
+    
+    for level, col in enumerate(hierarchy_cols, 1):
+        if col in df_filtrado.columns:
+            # Verifica se algum valor do filtro está nesta coluna
+            unique_values = df_filtrado[col].dropna().unique()
+            if any(valor in unique_values for valor in filtro_hierarquia):
+                next_level = level + 1
+                next_col = f'hier_produto_{next_level}' if next_level <= 3 else 'produto'
+                
+                print(f"   🎯 Filtro encontrado no nível {level} ({col}) - próximo nível: {next_level} ({next_col})")
+                
+                # Se estamos no nível 3, retornamos produtos individuais
+                if next_level > 3:
+                    return 4, 'produto'  # Produtos individuais
+                else:
+                    return next_level, next_col
+    
+    # Se não encontrou correspondência, usa o padrão
+    print("   🎯 Filtro não encontrado em hierarquias - usando hier_produto_1")
+    return 1, 'hier_produto_1'
 
 # Importa outros módulos de callbacks
 try:
@@ -1272,13 +1308,15 @@ def update_clients_table_page_size(page_size):
      Input('global-filtro-hierarquia', 'value'),
      Input('global-filtro-canal', 'value'),
      Input('global-filtro-top-clientes', 'value'),
-     Input('global-filtro-dias-sem-compra', 'value')],
+     Input('global-filtro-dias-sem-compra', 'value'),
+     Input('filter-top-produtos', 'value')],
     prevent_initial_call=False
 )
-def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra):
+def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, top_produtos):
     """Atualiza gráficos da página de produtos"""
     print(f"🔄 UPDATE_PRODUCTS_CHARTS executado - pathname: {pathname}")
     print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
+    print(f"   Hierarquia={filtro_hierarquia}, Top Produtos={top_produtos}")
     
     try:
         import plotly.graph_objects as go
@@ -1298,6 +1336,15 @@ def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, fil
         # Aplica filtros usando a função centralizada
         df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
         
+        # === LÓGICA INTELIGENTE DE HIERARQUIA ===
+        # Determina qual nível de hierarquia usar baseado no filtro
+        hierarchy_level, product_column = determine_hierarchy_level(df_filtrado, filtro_hierarquia)
+        print(f"   🎯 Nível de hierarquia determinado: {hierarchy_level}, coluna: {product_column}")
+        
+        # Define número de top produtos (padrão 20 se não especificado)
+        top_n_produtos = top_produtos if top_produtos and top_produtos > 0 else 20
+        print(f"   📊 Top N produtos: {top_n_produtos}")
+        
         if df_filtrado.empty:
             print("❌ Dados filtrados vazios")
             fig_empty = go.Figure().add_annotation(
@@ -1309,7 +1356,7 @@ def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, fil
         # === GRÁFICO DE BOLHAS (Matriz Clientes x Produtos) ===
         fig_bolhas = go.Figure()
         
-        if 'cliente' in df_filtrado.columns and 'hier_produto_1' in df_filtrado.columns:
+        if 'cliente' in df_filtrado.columns and product_column in df_filtrado.columns:
             # Determina qual coluna de quantidade usar
             qty_col = None
             for col in ['qty_vendida', 'qtde', 'quantidade', 'qte']:
@@ -1317,41 +1364,66 @@ def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, fil
                     qty_col = col
                     break
             
-            # Agrupa dados por cliente e produto
+            # Agrupa dados por cliente e produto usando a coluna inteligente determinada
             agg_dict = {'vlr_rol': 'sum'}
             if qty_col:
                 agg_dict[qty_col] = 'sum'
             
-            matriz_data = df_filtrado.groupby(['cliente', 'hier_produto_1']).agg(agg_dict).reset_index()
+            matriz_data = df_filtrado.groupby(['cliente', product_column]).agg(agg_dict).reset_index()
             
-            # Pega os top 10 clientes e top 10 produtos
             if len(matriz_data) > 0:
-                top_clientes = matriz_data.groupby('cliente')['vlr_rol'].sum().nlargest(10).index
-                top_produtos = matriz_data.groupby('hier_produto_1')['vlr_rol'].sum().nlargest(10).index
+                # Para clientes: se não há filtro top_clientes aplicado, pega top N baseado no faturamento
+                # Se já foi aplicado o filtro no apply_filters, usa todos os clientes resultantes
+                if filtro_top_clientes and filtro_top_clientes > 0:
+                    # Filtro já foi aplicado no apply_filters, usa todos os clientes
+                    clientes_matriz = matriz_data['cliente'].unique()
+                    print(f"   📊 Clientes na matriz (filtro já aplicado): {len(clientes_matriz)}")
+                else:
+                    # Não há filtro, pega top 10 clientes por faturamento
+                    top_clientes_n = 10
+                    top_clientes = matriz_data.groupby('cliente')['vlr_rol'].sum().nlargest(top_clientes_n).index
+                    clientes_matriz = top_clientes
+                    print(f"   📊 Top {top_clientes_n} clientes selecionados para matriz")
                 
+                # Para produtos: sempre pega top N produtos baseado no filtro
+                top_produtos_matriz = matriz_data.groupby(product_column)['vlr_rol'].sum().nlargest(top_n_produtos).index
+                print(f"   📊 Top {top_n_produtos} produtos selecionados para matriz")
+                
+                # Filtra a matriz final
                 matriz_filtered = matriz_data[
-                    (matriz_data['cliente'].isin(top_clientes)) & 
-                    (matriz_data['hier_produto_1'].isin(top_produtos))
+                    (matriz_data['cliente'].isin(clientes_matriz)) & 
+                    (matriz_data[product_column].isin(top_produtos_matriz))
                 ]
                 
                 if not matriz_filtered.empty:
                     # Usa quantidade se disponível, senão usa faturamento para cor
                     color_col = qty_col if qty_col and qty_col in matriz_filtered.columns else 'vlr_rol'
                     
+                    # CORREÇÃO: Valores negativos não são permitidos no size do scatter
+                    # Converte valores negativos para positivos (valor absoluto)
+                    size_col = 'vlr_rol_abs'
+                    matriz_filtered[size_col] = matriz_filtered['vlr_rol'].abs()
+                    
+                    # Garante que não há valores zero que podem causar problemas
+                    matriz_filtered[size_col] = matriz_filtered[size_col].replace(0, 1)
+                    
+                    title_suffix = f"(Nível {hierarchy_level})"
+                    if hierarchy_level == 4:
+                        title_suffix = "(Produtos Individuais)"
+                    
                     fig_bolhas = px.scatter(
                         matriz_filtered, 
                         x='cliente', 
-                        y='hier_produto_1',
-                        size='vlr_rol',
+                        y=product_column,
+                        size=size_col,  # Usa coluna com valores absolutos
                         color=color_col,
                         hover_data=['vlr_rol'] + ([qty_col] if qty_col and qty_col in matriz_filtered.columns else []),
-                        title='Matriz Clientes × Produtos (Top 10 cada)'
+                        title=f'Matriz Clientes × Produtos {title_suffix}'
                     )
                     fig_bolhas.update_layout(
                         height=400,
                         xaxis_title="Clientes",
                         yaxis_title="Produtos", 
-                        xaxis={'tickangle': 45}
                     )
                 else:
                     fig_bolhas.add_annotation(
@@ -1367,8 +1439,8 @@ def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, fil
             missing_cols = []
             if 'cliente' not in df_filtrado.columns:
                 missing_cols.append('cliente')
-            if 'hier_produto_1' not in df_filtrado.columns:
-                missing_cols.append('hier_produto_1')
+            if product_column not in df_filtrado.columns:
+                missing_cols.append(product_column)
             fig_bolhas.add_annotation(
                 text=f"Colunas ausentes: {', '.join(missing_cols)}", 
                 xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
@@ -1377,23 +1449,23 @@ def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, fil
         # === GRÁFICO DE PARETO (Produtos por Faturamento) ===
         fig_pareto = go.Figure()
         
-        if 'hier_produto_1' in df_filtrado.columns and 'vlr_rol' in df_filtrado.columns:
-            # Cria dados para Pareto
-            pareto_data = df_filtrado.groupby('hier_produto_1')['vlr_rol'].sum().sort_values(ascending=False).reset_index()
+        if product_column in df_filtrado.columns and 'vlr_rol' in df_filtrado.columns:
+            # Cria dados para Pareto usando a coluna de produto inteligente
+            pareto_data = df_filtrado.groupby(product_column)['vlr_rol'].sum().sort_values(ascending=False).reset_index()
             
             if len(pareto_data) > 0:
                 pareto_data['faturamento_acumulado'] = pareto_data['vlr_rol'].cumsum()
                 pareto_data['percentual_acumulado'] = (pareto_data['faturamento_acumulado'] / pareto_data['vlr_rol'].sum()) * 100
                 
-                # Pega os top 15 produtos
-                pareto_data = pareto_data.head(15)
+                # Usa o top_n_produtos do filtro
+                pareto_data = pareto_data.head(top_n_produtos)
                 
                 # Cria o gráfico de Pareto
                 fig_pareto = go.Figure()
                 
                 # Barras de faturamento
                 fig_pareto.add_trace(go.Bar(
-                    x=pareto_data['hier_produto_1'],
+                    x=pareto_data[product_column],
                     y=pareto_data['vlr_rol'],
                     name='Faturamento',
                     yaxis='y',
@@ -1402,7 +1474,7 @@ def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, fil
                 
                 # Linha de percentual acumulado
                 fig_pareto.add_trace(go.Scatter(
-                    x=pareto_data['hier_produto_1'],
+                    x=pareto_data[product_column],
                     y=pareto_data['percentual_acumulado'],
                     mode='lines+markers',
                     name='% Acumulado',
@@ -1412,8 +1484,12 @@ def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, fil
                 ))
                 
                 # Layout com dois eixos Y
+                title_suffix = f"(Nível {hierarchy_level})"
+                if hierarchy_level == 4:
+                    title_suffix = "(Produtos Individuais)"
+                
                 fig_pareto.update_layout(
-                    title='Análise de Pareto - Produtos (Top 15)',
+                    title=f'Análise de Pareto - Produtos {title_suffix} (Top {top_n_produtos})',
                     xaxis=dict(title='Produtos', tickangle=45),
                     yaxis=dict(title='Faturamento (R$)', side='left'),
                     yaxis2=dict(title='% Acumulado', side='right', overlaying='y', range=[0, 100]),
@@ -1427,8 +1503,8 @@ def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, fil
                 )
         else:
             missing_cols = []
-            if 'hier_produto_1' not in df_filtrado.columns:
-                missing_cols.append('hier_produto_1')
+            if product_column not in df_filtrado.columns:
+                missing_cols.append(product_column)
             if 'vlr_rol' not in df_filtrado.columns:
                 missing_cols.append('vlr_rol')
             fig_pareto.add_annotation(
