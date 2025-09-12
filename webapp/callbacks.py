@@ -2140,6 +2140,41 @@ print("✅ Callbacks principais registrados com sucesso")
 # ANALYTICS AVANÇADOS CALLBACKS
 # ==========================================
 
+def _build_seasonality_table_columns(seasonality_data):
+    """Constrói colunas da tabela de sazonalidade baseado nas colunas disponíveis"""
+    columns = [
+        {"name": "Mês", "id": "month"}
+    ]
+    
+    # Sempre incluir vendas (vlr_rol)
+    if 'sales_amount' in seasonality_data.columns:
+        columns.append({"name": "Vendas (R$)", "id": "sales_amount", "type": "numeric", "format": {"specifier": ",.0f"}})
+    
+    # Incluir entrada se disponível
+    if 'entrada_amount' in seasonality_data.columns:
+        columns.append({"name": "Entrada (R$)", "id": "entrada_amount", "type": "numeric", "format": {"specifier": ",.0f"}})
+    
+    # Incluir tendências
+    if 'trend' in seasonality_data.columns:
+        columns.append({"name": "Tendência (R$)", "id": "trend", "type": "numeric", "format": {"specifier": ",.0f"}})
+    
+    if 'entrada_trend' in seasonality_data.columns:
+        columns.append({"name": "Tend. Entrada (R$)", "id": "entrada_trend", "type": "numeric", "format": {"specifier": ",.0f"}})
+    
+    # Incluir sazonalidade
+    if 'seasonal' in seasonality_data.columns:
+        columns.append({"name": "Sazonal (R$)", "id": "seasonal", "type": "numeric", "format": {"specifier": ",.0f"}})
+    
+    if 'entrada_seasonal' in seasonality_data.columns:
+        columns.append({"name": "Saz. Entrada (R$)", "id": "entrada_seasonal", "type": "numeric", "format": {"specifier": ",.0f"}})
+    
+    # Incluir coeficiente de variação
+    if 'coefficient_variation' in seasonality_data.columns:
+        columns.append({"name": "Coef. Variação", "id": "coefficient_variation", "type": "numeric", "format": {"specifier": ",.1%"}})
+    
+    return columns
+# ==========================================
+
 @app.callback(
     Output('analytics-content', 'children'),
     [Input('analytics-tipo-analise', 'value'),
@@ -2812,15 +2847,16 @@ def create_seasonality_analysis_content(analytics, vendas_filtrado=None):
                 html.H5("📅 Dados Mensais Detalhados", className="mb-3"),
                 dash_table.DataTable(
                     data=seasonality_data.to_dict('records'),
-                    columns=[
-                        {"name": "Mês", "id": "month"},
-                        {"name": "Vendas (R$)", "id": "sales_amount", "type": "numeric", "format": {"specifier": ",.0f"}},
-                        {"name": "Tendência (R$)", "id": "trend", "type": "numeric", "format": {"specifier": ",.0f"}},
-                        {"name": "Sazonal (R$)", "id": "seasonal", "type": "numeric", "format": {"specifier": ",.0f"}},
-                        {"name": "Coef. Variação", "id": "coefficient_variation", "type": "numeric", "format": {"specifier": ",.1%"}}
-                    ],
-                    style_cell={'textAlign': 'left', 'fontSize': '12px'},
-                    style_header={'backgroundColor': '#f8f9fa', 'fontWeight': 'bold'}
+                    columns=_build_seasonality_table_columns(seasonality_data),
+                    style_cell={'textAlign': 'left', 'fontSize': '11px'},
+                    style_header={'backgroundColor': '#f8f9fa', 'fontWeight': 'bold'},
+                    style_data_conditional=[
+                        {
+                            'if': {'column_id': ['entrada_amount', 'entrada_trend', 'entrada_seasonal']},
+                            'backgroundColor': '#e3f2fd',
+                            'color': '#1565c0'
+                        }
+                    ]
                 )
             ])
         ])
