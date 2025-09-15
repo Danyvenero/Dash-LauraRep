@@ -10,17 +10,40 @@ class DataLoaderFixed:
     def __init__(self, db_path: str = None):
         self.db_path = db_path or os.path.join(os.path.dirname(__file__), '..', 'instance', 'database.sqlite')
     
-    def detect_file_type(self, df: pd.DataFrame) -> str:
-        """Detecta o tipo de arquivo baseado nas colunas"""
+    def detect_file_type(self, filename: str, df: pd.DataFrame) -> str:
+        """Detecta o tipo de arquivo baseado no nome e colunas"""
+        filename_lower = filename.lower()
         columns_lower = [col.lower() for col in df.columns]
         
-        if any(col in columns_lower for col in ['vlr_rol', 'vlr_entrada', 'vlr_carteira']):
-            return 'vendas'
-        elif 'numero_cotacao' in columns_lower or 'número da cotação' in columns_lower:
+        print(f"🔍 DEBUG detect_file_type - Arquivo: {filename}", flush=True)
+        print(f"🔍 DEBUG detect_file_type - Colunas disponíveis: {columns_lower}", flush=True)
+        
+        # Verifica hints no nome do arquivo primeiro
+        if any(hint in filename_lower for hint in ['materiais', 'material', 'produtos', 'produto', 'items']):
+            print(f"🔍 DEBUG: Arquivo detectado como PRODUTOS_COTADOS (por nome)", flush=True)
+            return 'produtos_cotados'
+        elif any(hint in filename_lower for hint in ['cotação', 'cotacao', 'cotações', 'cotacoes', 'quote']):
+            print(f"🔍 DEBUG: Arquivo detectado como COTAÇÕES (por nome)", flush=True)
             return 'cotacoes'
-        elif any(col in columns_lower for col in ['preco_liquido', 'preço_liquido', 'centro_fornecedor']):
+        elif any(hint in filename_lower for hint in ['ovs', 'vendas', 'venda', 'faturamento']):
+            print(f"🔍 DEBUG: Arquivo detectado como VENDAS (por nome)", flush=True)
+            return 'vendas'
+        
+        # Se não detectou pelo nome, verifica pelas colunas
+        print(f"🔍 DEBUG: Verificando colunas para detecção...", flush=True)
+        
+        if any(col in columns_lower for col in ['vlr_rol', 'vlr_entrada', 'vlr_carteira']):
+            print(f"🔍 DEBUG: Arquivo detectado como VENDAS (por colunas: vlr_rol/vlr_entrada/vlr_carteira)", flush=True)
+            return 'vendas'
+        elif any(col in columns_lower for col in ['numero_cotacao', 'número da cotação', 'numero da cotacao']):
+            print(f"🔍 DEBUG: Arquivo detectado como COTAÇÕES (por colunas: numero_cotacao)", flush=True)
+            return 'cotacoes'
+        elif any(col in columns_lower for col in ['preco_liquido', 'preço_liquido', 'preço líquido', 'preço líquido unitário', 'centro_fornecedor', 'centro fornecedor']):
+            print(f"🔍 DEBUG: Arquivo detectado como PRODUTOS_COTADOS (por colunas: preço_liquido)", flush=True)
             return 'produtos_cotados'
         else:
+            print(f"🔍 DEBUG: Arquivo não reconhecido, usando VENDAS como padrão", flush=True)
+            print(f"🔍 DEBUG: Colunas analisadas: {columns_lower}", flush=True)
             return 'vendas'  # Default
     
     def normalize_vendas_data(self, df: pd.DataFrame) -> pd.DataFrame:

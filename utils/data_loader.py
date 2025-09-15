@@ -35,7 +35,7 @@ class DataLoader:
             return 'vendas'
         elif 'numero_cotacao' in columns_lower or 'número da cotação' in columns_lower:
             return 'cotacoes'
-        elif any(col in columns_lower for col in ['preco_liquido', 'preço_liquido', 'centro_fornecedor']):
+        elif any(col in columns_lower for col in ['preco_liquido', 'preço_liquido', 'preço líquido', 'preço líquido unitário', 'centro_fornecedor', 'centro fornecedor']):
             return 'produtos_cotados'
         
         return 'unknown'

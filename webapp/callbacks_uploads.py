@@ -65,11 +65,16 @@ def handle_file_uploads(vendas_content, cotacoes_content, materiais_content, loa
                        vendas_filename, cotacoes_filename, materiais_filename):
     """Processa uploads de arquivos"""
     
+    print(f"🔄 CALLBACK UPLOAD CHAMADO!", flush=True)
+    print(f"📋 Contexto: {dash.callback_context.triggered if dash.callback_context.triggered else 'Vazio'}", flush=True)
+    
     ctx = dash.callback_context
     if not ctx.triggered:
+        print(f"❌ Nenhum trigger detectado - retornando no_update", flush=True)
         return dash.no_update
     
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    print(f"🎯 Trigger ID detectado: {trigger_id}", flush=True)
     
     # Se foi clique no botão de carregar dados salvos
     if trigger_id == 'btn-load-saved-data':
@@ -96,11 +101,11 @@ def handle_file_uploads(vendas_content, cotacoes_content, materiais_content, loa
             )
     
     # Processamento de uploads
-    print(f"🚀 INICIANDO PROCESSAMENTO DE UPLOAD...")
-    print(f"📁 Arquivos recebidos:")
-    print(f"  - Vendas: {type(vendas_content)} / {type(vendas_filename)}")
-    print(f"  - Cotações: {type(cotacoes_content)} / {type(cotacoes_filename)}")
-    print(f"  - Materiais: {type(materiais_content)} / {type(materiais_filename)}")
+    print(f"🚀 INICIANDO PROCESSAMENTO DE UPLOAD...", flush=True)
+    print(f"📁 Arquivos recebidos:", flush=True)
+    print(f"  - Vendas: {type(vendas_content)} / {type(vendas_filename)}", flush=True)
+    print(f"  - Cotações: {type(cotacoes_content)} / {type(cotacoes_filename)}", flush=True)
+    print(f"  - Materiais: {type(materiais_content)} / {type(materiais_filename)}", flush=True)
     
     uploads_processed = []
     errors = []
@@ -218,21 +223,34 @@ def handle_file_uploads(vendas_content, cotacoes_content, materiais_content, loa
                             errors.append(f"❌ Erro ao ler arquivo {single_filename}: {str(read_error)}")
                             continue
                         
-                        # Processa baseado no tipo com concatenação robusta
-                        if file_type == 'vendas':
+                        # Detecta o tipo real do arquivo baseado no conteúdo
+                        actual_file_type = data_loader.detect_file_type(single_filename, df)
+                        print(f"🔍 Tipo detectado para {single_filename}: {actual_file_type} (upload area: {file_type})", flush=True)
+                        
+                        # Processa baseado no tipo REAL detectado
+                        if actual_file_type == 'vendas':
+                            print(f"🔄 Processando VENDAS: {single_filename}", flush=True)
                             df_processed = data_loader.normalize_vendas_data(df)
+                            print(f"✅ Vendas processadas: {len(df_processed) if df_processed is not None else 0} registros", flush=True)
                             df_processed = _safe_dataframe_concat(dataframes, 'vendas', df_processed)
                             dataframes['vendas'] = df_processed
-                        elif file_type == 'cotacoes':
+                        elif actual_file_type == 'cotacoes':
+                            print(f"🔄 Processando COTAÇÕES: {single_filename}", flush=True)
                             df_processed = data_loader.normalize_cotacoes_data(df)
+                            print(f"✅ Cotações processadas: {len(df_processed) if df_processed is not None else 0} registros", flush=True)
                             df_processed = _safe_dataframe_concat(dataframes, 'cotacoes', df_processed)
                             dataframes['cotacoes'] = df_processed
-                        elif file_type == 'materiais':
+                        elif actual_file_type == 'produtos_cotados':
+                            print(f"🔄 Processando MATERIAIS/PRODUTOS_COTADOS: {single_filename}", flush=True)
                             df_processed = data_loader.normalize_produtos_cotados_data(df)
+                            print(f"✅ Materiais processados: {len(df_processed) if df_processed is not None else 0} registros", flush=True)
                             df_processed = _safe_dataframe_concat(dataframes, 'produtos_cotados', df_processed)
                             dataframes['produtos_cotados'] = df_processed
+                        else:
+                            print(f"❌ Tipo de arquivo não reconhecido: {actual_file_type}", flush=True)
+                            continue
                         
-                        uploads_processed.append(f"✅ {single_filename} - {len(df_processed)} registros")
+                        uploads_processed.append(f"✅ {single_filename} ({actual_file_type}) - {len(df_processed)} registros")
                         
                     except Exception as e:
                         errors.append(f"❌ Erro ao processar {single_filename}: {str(e)}")
@@ -338,18 +356,31 @@ def handle_file_uploads(vendas_content, cotacoes_content, materiais_content, loa
                         errors.append(f"❌ Erro ao ler arquivo {filename}: {str(read_error)}")
                         continue
                     
-                    # Processa baseado no tipo com concatenação robusta
-                    if file_type == 'vendas':
-                        df_processed = data_loader.normalize_vendas_data(df)
-                        dataframes['vendas'] = _safe_dataframe_concat(dataframes, 'vendas', df_processed)
-                    elif file_type == 'cotacoes':
-                        df_processed = data_loader.normalize_cotacoes_data(df)
-                        dataframes['cotacoes'] = _safe_dataframe_concat(dataframes, 'cotacoes', df_processed)
-                    elif file_type == 'materiais':
-                        df_processed = data_loader.normalize_produtos_cotados_data(df)
-                        dataframes['produtos_cotados'] = _safe_dataframe_concat(dataframes, 'produtos_cotados', df_processed)
+                    # Detecta o tipo real do arquivo baseado no conteúdo
+                    actual_file_type = data_loader.detect_file_type(filename, df)
+                    print(f"🔍 Tipo detectado para {filename}: {actual_file_type} (upload area: {file_type})", flush=True)
                     
-                    uploads_processed.append(f"✅ {filename} - {len(df_processed)} registros")
+                    # Processa baseado no tipo REAL detectado
+                    if actual_file_type == 'vendas':
+                        print(f"🔄 Processando VENDAS: {filename}", flush=True)
+                        df_processed = data_loader.normalize_vendas_data(df)
+                        print(f"✅ Vendas processadas: {len(df_processed) if df_processed is not None else 0} registros", flush=True)
+                        dataframes['vendas'] = _safe_dataframe_concat(dataframes, 'vendas', df_processed)
+                    elif actual_file_type == 'cotacoes':
+                        print(f"🔄 Processando COTAÇÕES: {filename}", flush=True)
+                        df_processed = data_loader.normalize_cotacoes_data(df)
+                        print(f"✅ Cotações processadas: {len(df_processed) if df_processed is not None else 0} registros", flush=True)
+                        dataframes['cotacoes'] = _safe_dataframe_concat(dataframes, 'cotacoes', df_processed)
+                    elif actual_file_type == 'produtos_cotados':
+                        print(f"🔄 Processando MATERIAIS/PRODUTOS_COTADOS: {filename}", flush=True)
+                        df_processed = data_loader.normalize_produtos_cotados_data(df)
+                        print(f"✅ Materiais processados: {len(df_processed) if df_processed is not None else 0} registros", flush=True)
+                        dataframes['produtos_cotados'] = _safe_dataframe_concat(dataframes, 'produtos_cotados', df_processed)
+                    else:
+                        print(f"❌ Tipo de arquivo não reconhecido: {actual_file_type}", flush=True)
+                        continue
+                    
+                    uploads_processed.append(f"✅ {filename} ({actual_file_type}) - {len(df_processed)} registros")
                     
                 except Exception as e:
                     errors.append(f"❌ Erro ao processar {filename}: {str(e)}")
@@ -370,18 +401,42 @@ def handle_file_uploads(vendas_content, cotacoes_content, materiais_content, loa
             user_id = get_current_user_id()
             dataset_name = f"Upload_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}"
             
-            print(f"👤 User ID: {user_id}")
-            print(f"📝 Dataset Name: {dataset_name}")
+            print(f"👤 User ID: {user_id}", flush=True)
+            print(f"📝 Dataset Name: {dataset_name}", flush=True)
             
-            dataset_id = save_dataset(
-                dataset_name, 
-                user_id,
-                dataframes['vendas'],
-                dataframes['cotacoes'], 
-                dataframes['produtos_cotados']
-            )
+            # Log dos DataFrames antes de salvar
+            print(f"\n📊 DADOS PARA SALVAMENTO:", flush=True)
+            print(f"  • Vendas: {len(dataframes['vendas']) if dataframes['vendas'] is not None else 0} registros", flush=True)
+            print(f"  • Cotações: {len(dataframes['cotacoes']) if dataframes['cotacoes'] is not None else 0} registros", flush=True)  
+            print(f"  • Produtos Cotados: {len(dataframes['produtos_cotados']) if dataframes['produtos_cotados'] is not None else 0} registros", flush=True)
             
-            print(f"✅ DATASET SALVO COM SUCESSO! ID: {dataset_id}")
+            try:
+                dataset_id = save_dataset(
+                    dataset_name, 
+                    user_id,
+                    dataframes['vendas'],
+                    dataframes['cotacoes'], 
+                    dataframes['produtos_cotados']
+                )
+                
+                print(f"✅ DATASET SALVO COM SUCESSO! ID: {dataset_id}", flush=True)
+                
+            except Exception as save_error:
+                error_msg = str(save_error)
+                print(f"❌ Erro ao salvar no banco: {error_msg}", flush=True)
+                
+                if "database is locked" in error_msg.lower():
+                    return dbc.Alert([
+                        html.H6("🔒 Banco de dados temporariamente bloqueado", className="text-danger"),
+                        html.P("O banco está processando outra operação. Aguarde alguns segundos e tente novamente.", className="mb-2"),
+                        html.P("💡 Dica: Evite fazer múltiplos uploads simultâneos.", className="small text-muted")
+                    ], color="warning", duration=15000)
+                else:
+                    return dbc.Alert([
+                        html.H6("❌ Erro ao salvar dados", className="text-danger"),
+                        html.P(f"Erro: {error_msg}", className="mb-2"),
+                        html.P("Tente novamente em alguns momentos.", className="small text-muted")
+                    ], color="danger", duration=15000)
             
             # 🔍 MENSAGEM INTELIGENTE BASEADA NO RESULTADO
             if dataset_id is None:

@@ -1,5 +1,6 @@
 """
 Módulo de layouts da aplicação
+Integração com interface de chat para preparação do agente de IA
 """
 
 from dash import html, dcc, dash_table
@@ -7,6 +8,7 @@ from dash.dash_table.Format import Format, Scheme
 from dash.dash_table import FormatTemplate
 import dash_bootstrap_components as dbc
 from webapp.auth import require_login, create_user_info_component, create_login_layout
+from webapp.chat_interface import create_chat_interface
 from utils import is_authenticated
 import datetime
 
@@ -149,7 +151,10 @@ def create_sidebar():
                     dcc.Link("🎯 Funil & Ações", href="/app/funnel", className="sidebar-menu-item")
                 ]),
                 html.Li([
-                    dcc.Link("🤖 Insights IA", href="/app/insights", className="sidebar-menu-item")
+                    dcc.Link("🤖 Assistente IA", href="/app/chat", className="sidebar-menu-item")
+                ]),
+                html.Li([
+                    dcc.Link("🎯 Insights IA", href="/app/insights", className="sidebar-menu-item")
                 ]),
                 html.Li([
                     dcc.Link("📊 Analytics Avançados", href="/app/analytics", className="sidebar-menu-item")
@@ -418,11 +423,7 @@ def create_products_layout():
                         searchable=True,
                         clearable=True,
                         style={'fontSize': '14px'},
-                        options=[
-                            {'label': 'MAT001 - Motor Elétrico 1CV', 'value': 'MAT001'},
-                            {'label': 'MAT002 - Motor Elétrico 2CV', 'value': 'MAT002'},
-                            {'label': 'MAT003 - Redutor de Velocidade', 'value': 'MAT003'}
-                        ]
+                        options=[]  # Será populado dinamicamente pelo callback
                     )
                 ], width=12, md=6),
                 dbc.Col([
@@ -464,41 +465,7 @@ def create_products_layout():
                     {"name": "Valor Médio", "id": "valor_medio", "type": "numeric", "format": FormatTemplate.money(2)},
                     {"name": "Faturamento Total", "id": "faturamento_total", "type": "numeric", "format": FormatTemplate.money(2)}
                 ],
-                data=[
-                    {
-                        'material': 'MAT001',
-                        'produto': 'Motor Elétrico 1CV',
-                        'hierarquia': 'MOTORES',
-                        'recorrencia_compra': 5,
-                        'recorrencia_cotacao': 8,
-                        'taxa_conversao': 62.5,
-                        'qty_media_cotada': 3.2,
-                        'valor_medio': 1550.00,
-                        'faturamento_total': 7750.00
-                    },
-                    {
-                        'material': 'MAT002',
-                        'produto': 'Motor Elétrico 2CV',
-                        'hierarquia': 'MOTORES',
-                        'recorrencia_compra': 3,
-                        'recorrencia_cotacao': 5,
-                        'taxa_conversao': 60.0,
-                        'qty_media_cotada': 2.5,
-                        'valor_medio': 2200.00,
-                        'faturamento_total': 6600.00
-                    },
-                    {
-                        'material': 'MAT003',
-                        'produto': 'Redutor de Velocidade',
-                        'hierarquia': 'REDUTORES',
-                        'recorrencia_compra': 4,
-                        'recorrencia_cotacao': 6,
-                        'taxa_conversao': 66.7,
-                        'qty_media_cotada': 4.0,
-                        'valor_medio': 800.00,
-                        'faturamento_total': 3200.00
-                    }
-                ],
+                data=[],  # Dados serão carregados pelo callback
                 page_size=25,
                 page_action="native",
                 sort_action="native",
@@ -853,6 +820,95 @@ def create_config_layout():
         ], id="modal-confirm-clear-all", is_open=False)
     ])
 
+@require_login
+def create_chat_layout():
+    """Cria layout da página do assistente de IA"""
+    return html.Div([
+        dbc.Row([
+            dbc.Col([
+                html.H4([
+                    html.I(className="fas fa-robot me-2"),
+                    "Assistente de IA - Preparação para o Futuro"
+                ], className="mb-4"),
+                
+                # Informações sobre o desenvolvimento
+                dbc.Alert([
+                    html.H5([
+                        html.I(className="fas fa-info-circle me-2"),
+                        "Sobre esta Funcionalidade"
+                    ]),
+                    html.P([
+                        "Este é o início do nosso agente de IA conversacional! Atualmente funciona com comandos estruturados, ",
+                        "mas será evoluído para entender perguntas em linguagem natural."
+                    ]),
+                    html.Hr(),
+                    html.Strong("Roadmap de Evolução:"),
+                    html.Ul([
+                        html.Li("Fase 1 (Atual): Comandos estruturados"),
+                        html.Li("Fase 2 (Q1 2026): NLP básico em português"),
+                        html.Li("Fase 3 (Q2-Q3 2026): IA conversacional completa"),
+                        html.Li("Fase 4 (Q4 2026): Agente proativo com insights automáticos")
+                    ])
+                ], color="info", className="mb-4"),
+                
+                # Interface do chat
+                create_chat_interface()
+            ], width=12, lg=8),
+            
+            dbc.Col([
+                # Painel de informações técnicas
+                dbc.Card([
+                    dbc.CardHeader(html.H5("🔧 Informações Técnicas")),
+                    dbc.CardBody([
+                        html.H6("Status Atual"),
+                        dbc.ListGroup([
+                            dbc.ListGroupItem([
+                                html.I(className="fas fa-check-circle text-success me-2"),
+                                "Sistema heurístico operacional"
+                            ], className="border-0"),
+                            dbc.ListGroupItem([
+                                html.I(className="fas fa-check-circle text-success me-2"),
+                                "Comandos estruturados funcionais"
+                            ], className="border-0"),
+                            dbc.ListGroupItem([
+                                html.I(className="fas fa-spinner text-warning me-2"),
+                                "NLP em desenvolvimento"
+                            ], className="border-0"),
+                            dbc.ListGroupItem([
+                                html.I(className="fas fa-clock text-info me-2"),
+                                "LLM integration planejada"
+                            ], className="border-0")
+                        ], flush=True, className="mb-3"),
+                        
+                        html.H6("Próximas Funcionalidades"),
+                        html.Ul([
+                            html.Li("Perguntas em linguagem natural"),
+                            html.Li("Geração automática de relatórios"),
+                            html.Li("Análises personalizadas sob demanda"),
+                            html.Li("Insights proativos baseados em dados"),
+                            html.Li("Integração com ferramentas externas")
+                        ], className="small"),
+                        
+                        html.Hr(),
+                        html.Small([
+                            "📖 Documentação completa: ",
+                            html.A("ROADMAP_AGENTE_IA.md", href="#", className="text-decoration-none")
+                        ], className="text-muted")
+                    ])
+                ], className="mb-4"),
+                
+                # Estatísticas de uso
+                dbc.Card([
+                    dbc.CardHeader(html.H5("📊 Estatísticas")),
+                    dbc.CardBody([
+                        html.P("Funcionalidade em desenvolvimento.", className="text-muted"),
+                        html.Small("Em breve: estatísticas de uso, análises mais solicitadas, e métricas de performance.")
+                    ])
+                ])
+            ], width=12, lg=4)
+        ])
+    ])
+
 def get_layout(pathname):
     """Retorna layout baseado no pathname"""
     if not is_authenticated() and pathname != '/login':
@@ -867,6 +923,8 @@ def get_layout(pathname):
     elif pathname == '/app/products':
         return create_main_layout()
     elif pathname == '/app/funnel':
+        return create_main_layout()
+    elif pathname == '/app/chat':
         return create_main_layout()
     elif pathname == '/app/insights':
         return create_main_layout()
