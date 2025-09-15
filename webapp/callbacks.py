@@ -3,7 +3,7 @@ Callbacks principais da aplicação com performance otimizada
 Integração com AI Framework para preparação evolutiva
 """
 
-from dash import Input, Output, State, callback_context, dash_table, html
+from dash import Input, Output, State, callback_context, dash_table, html, dcc
 import dash
 import pandas as pd
 import dash_bootstrap_components as dbc
@@ -25,8 +25,12 @@ from utils.ai_framework import ai_analytics, SimpleNLPMatcher, UserInteractionLo
 ai_logger = UserInteractionLogger()
 nlp_matcher = SimpleNLPMatcher()
 
-def apply_filters(df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra=None):
-    """Aplica todos os filtros ao DataFrame de vendas de forma otimizada"""
+def apply_filters(df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra=None, metrica_type=None):
+    """Aplica todos os filtros ao DataFrame de vendas de forma otimizada
+    
+    Args:
+        metrica_type: 'entrada' para usar coluna 'data', 'faturamento' para usar 'data_faturamento', None para detectar automaticamente
+    """
     print(f"🔍 APPLY_FILTERS iniciado - DataFrame original: {len(df)} registros")
     print(f"   📊 Filtros recebidos:")
     print(f"      • Ano: {filtro_ano}")
@@ -36,6 +40,7 @@ def apply_filters(df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia,
     print(f"      • Canal: {filtro_canal}")
     print(f"      • Top Clientes: {filtro_top_clientes}")
     print(f"      • Dias sem compra: {filtro_dias_sem_compra}")
+    print(f"      • Métrica tipo: {metrica_type}")
     
     if df is None or df.empty:
         print("   ⚠️ DataFrame vazio ou None - retornando original")
@@ -43,13 +48,29 @@ def apply_filters(df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia,
     
     df_filtrado = df.copy()
     
-    # Detecta automaticamente a coluna de data
+    # Detecta automaticamente a coluna de data baseada na métrica
     date_column = None
-    for col in ['data_faturamento', 'data', 'data_venda']:
-        if col in df_filtrado.columns:
-            date_column = col
-            print(f"   📅 Coluna de data detectada: {date_column}")
-            break
+    if metrica_type == 'entrada':
+        # Para entrada de pedidos, sempre usar 'data' (data do pedido)
+        for col in ['data', 'data_faturamento', 'data_venda']:
+            if col in df_filtrado.columns:
+                date_column = col
+                print(f"   📅 Coluna de data para entrada detectada: {date_column}")
+                break
+    elif metrica_type == 'faturamento':
+        # Para faturamento, sempre usar 'data_faturamento'
+        for col in ['data_faturamento', 'data', 'data_venda']:
+            if col in df_filtrado.columns:
+                date_column = col
+                print(f"   📅 Coluna de data para faturamento detectada: {date_column}")
+                break
+    else:
+        # Detecta automaticamente (comportamento padrão anterior)
+        for col in ['data_faturamento', 'data', 'data_venda']:
+            if col in df_filtrado.columns:
+                date_column = col
+                print(f"   📅 Coluna de data detectada automaticamente: {date_column}")
+                break
     
     try:
         # Filtro por ano - se vazio considera todos os anos
@@ -322,25 +343,45 @@ def update_kpi_entrada(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_
     
     if pathname not in ['/', '/app', '/app/', '/app/overview']:
         return "R$ 0"
-    
+
     try:
         vendas_df = load_vendas_data()
+        print(f"📊 DADOS CARREGADOS: {len(vendas_df)} registros")
+        print(f"   Colunas originais: {list(vendas_df.columns)}")
+        
         if vendas_df.empty:
+            print("❌ DataFrame de vendas está vazio!")
             return "R$ 0"
             
-        # Aplica todos os filtros usando função auxiliar
+        # Verificar dados originais de vlr_entrada
+        if 'vlr_entrada' in vendas_df.columns:
+            total_entrada_original = vendas_df['vlr_entrada'].sum()
+            registros_com_entrada = (vendas_df['vlr_entrada'] > 0).sum()
+            print(f"💰 DADOS ORIGINAIS vlr_entrada: soma={total_entrada_original:,.2f}, registros_positivos={registros_com_entrada}")
+            print(f"   Amostra vlr_entrada original: {vendas_df['vlr_entrada'].head(10).tolist()}")
+        else:
+            print("❌ Coluna vlr_entrada não existe nos dados originais!")
+            
+        # Aplica todos os filtros usando função auxiliar - especifica que é para entrada de pedidos
         df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                  filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
+                                  filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, metrica_type='entrada')
+        
+        print(f"📊 DADOS FILTRADOS: {len(df_filtrado)} registros")
+        print(f"   Colunas filtradas: {list(df_filtrado.columns) if not df_filtrado.empty else 'DataFrame vazio'}")
         
         entrada_valor = df_filtrado['vlr_entrada'].sum() if 'vlr_entrada' in df_filtrado.columns else 0
-        print(f"💰 KPI Entrada calculado: {entrada_valor:,.0f} (de {len(df_filtrado)} registros)")
+        if 'vlr_entrada' in df_filtrado.columns and not df_filtrado.empty:
+            registros_filtrados_com_entrada = (df_filtrado['vlr_entrada'] > 0).sum()
+            print(f"💰 DADOS FILTRADOS vlr_entrada: soma={entrada_valor:,.2f}, registros_positivos={registros_filtrados_com_entrada}")
+            print(f"   Amostra vlr_entrada filtrado: {df_filtrado['vlr_entrada'].head(10).tolist()}")
+        
         return f"R$ {entrada_valor:,.0f}"
         
     except Exception as e:
         print(f"❌ Erro em update_kpi_entrada: {e}")
-        return "Erro"
-
-# Callback para KPI de Carteira - REATIVO A FILTROS
+        import traceback
+        print(f"❌ Traceback: {traceback.format_exc()}")
+        return "Erro"# Callback para KPI de Carteira - REATIVO A FILTROS
 @app.callback(
     Output('kpi-valor-carteira', 'children'),
     [Input('url', 'pathname'),
@@ -406,9 +447,9 @@ def update_kpi_faturamento(pathname, filtro_ano, filtro_mes, filtro_cliente, fil
         if vendas_df.empty:
             return "R$ 0"
             
-        # Aplica todos os filtros usando função auxiliar
+        # Aplica todos os filtros usando função auxiliar - especifica que é para faturamento
         df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                  filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
+                                  filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, metrica_type='faturamento')
         
         faturamento_valor = df_filtrado['vlr_rol'].sum() if 'vlr_rol' in df_filtrado.columns else 0
         print(f"💰 KPI Faturamento calculado: {faturamento_valor:,.0f} (de {len(df_filtrado)} registros)")
@@ -447,32 +488,72 @@ def update_grafico_evolucao(pathname, filtro_ano, filtro_mes, filtro_cliente, fi
             import plotly.graph_objects as go
             return go.Figure()
             
-        # Aplica todos os filtros usando função auxiliar
-        df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                  filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
+        # Para o gráfico de evolução, precisamos filtrar separadamente para cada métrica
+        # porque entrada usa 'data' e faturamento usa 'data_faturamento'
         
-        # Gráfico de evolução
+        # Filtrar dados para FATURAMENTO (usando data_faturamento)
+        df_filtrado_faturamento = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
+                                               filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, metrica_type='faturamento')
+        
+        # Filtrar dados para ENTRADA (usando data)
+        df_filtrado_entrada = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
+                                          filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, metrica_type='entrada')
+        
+        # Gráfico de evolução - CORREÇÃO: Incluir vlr_entrada
         import plotly.graph_objects as go
         fig_vendas = go.Figure()
-        if not df_filtrado.empty and 'data' in df_filtrado.columns:
-            vendas_mes = df_filtrado.groupby(df_filtrado['data'].dt.strftime('%Y-%m'))['vlr_rol'].sum().sort_index()
-            fig_vendas.add_trace(go.Scatter(
-                x=vendas_mes.index, 
-                y=vendas_mes.values,
-                mode='lines+markers',
-                name='Vendas',
-                line=dict(color='#007bff', width=3),
-                marker=dict(size=8)
-            ))
-            fig_vendas.update_layout(
-                title="Evolução de Vendas",
-                xaxis_title="Período",
-                yaxis_title="Valor (R$)",
-                template="plotly_white",
-                height=400
-            )
         
-        print(f"📈 Gráfico de evolução criado com {len(vendas_mes) if 'vendas_mes' in locals() else 0} pontos (de {len(df_filtrado)} registros)")
+        # Preparar dados de faturamento agrupados por mês
+        if not df_filtrado_faturamento.empty and 'data_faturamento' in df_filtrado_faturamento.columns:
+            df_mes_faturamento = df_filtrado_faturamento.groupby(df_filtrado_faturamento['data_faturamento'].dt.strftime('%Y-%m')).agg({
+                'vlr_rol': 'sum'
+            }).sort_index()
+            
+            # Linha de Faturamento (vlr_rol)
+            fig_vendas.add_trace(go.Scatter(
+                x=df_mes_faturamento.index, 
+                y=df_mes_faturamento['vlr_rol'],
+                mode='lines+markers',
+                name='Faturamento',
+                line=dict(color='#28a745', width=3),
+                marker=dict(size=8),
+                yaxis='y'
+            ))
+        
+        # Preparar dados de entrada agrupados por mês
+        if not df_filtrado_entrada.empty and 'data' in df_filtrado_entrada.columns:
+            df_mes_entrada = df_filtrado_entrada.groupby(df_filtrado_entrada['data'].dt.strftime('%Y-%m')).agg({
+                'vlr_entrada': 'sum'
+            }).sort_index()
+            
+            # Linha de Entrada (vlr_entrada)
+            fig_vendas.add_trace(go.Scatter(
+                x=df_mes_entrada.index, 
+                y=df_mes_entrada['vlr_entrada'],
+                mode='lines+markers',
+                name='Entrada de Pedidos',
+                line=dict(color='#007bff', width=3, dash='dash'),
+                marker=dict(size=8),
+                yaxis='y'
+            ))
+        
+        fig_vendas.update_layout(
+            title="Evolução de Vendas e Entrada de Pedidos",
+            xaxis_title="Período",
+            yaxis_title="Valor (R$)",
+            template="plotly_white",
+            height=400,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            hovermode='x unified'
+        )
+        
+        print(f"📈 Gráfico de evolução criado com dados separados para faturamento e entrada")
         return fig_vendas
         
     except Exception as e:
@@ -500,42 +581,136 @@ def update_kpis_unidades_negocio(pathname, filtro_ano, filtro_mes, filtro_client
     print(f"   Filtros adicionais: hierarquia={filtro_hierarquia}, canal={filtro_canal}, top_clientes={filtro_top_clientes}")
     
     if pathname not in ['/', '/app', '/app/', '/app/overview']:
+        print(f"❌ Pathname não válido para unidades de negócio: {pathname}")
         return []
-    
+
     try:
         vendas_df = load_vendas_data()
+        print(f"📊 DADOS CARREGADOS para UN: {len(vendas_df)} registros")
+        print(f"   Colunas originais: {list(vendas_df.columns)}")
+        
         if vendas_df.empty:
+            print("❌ DataFrame de vendas está vazio para UN!")
             return []
             
-        # Aplica todos os filtros usando função auxiliar
-        df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                  filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
+        # Verificar se existe coluna unidade_negocio
+        col_unidade = None
+        for col in vendas_df.columns:
+            if 'unidade' in col.lower():
+                col_unidade = col
+                print(f"🏢 Coluna de unidade encontrada: {col}")
+                break
         
-        # KPIs por Unidade de Negócio
-        kpis_un = []
-        if not df_filtrado.empty and 'unidade_negocio' in df_filtrado.columns:
-            un_stats = df_filtrado.groupby('unidade_negocio')['vlr_rol'].sum().sort_values(ascending=False)
+        if not col_unidade:
+            print("❌ Nenhuma coluna de unidade de negócio encontrada!")
+            print(f"   Colunas disponíveis: {list(vendas_df.columns)}")
+            return []
             
-            import dash_bootstrap_components as dbc
-            for un, valor in un_stats.head(6).items():
-                kpi_card = dbc.Col([
-                    dbc.Card([
-                        dbc.CardBody([
-                            html.H6(f"R$ {valor:,.0f}", className="card-title text-primary"),
-                            html.P(str(un), className="card-text small")
-                        ])
-                    ], className="text-center h-100 mb-2")
-                ], width=12, md=2)
-                kpis_un.append(kpi_card)
+        # Aplicar filtros separadamente para cada métrica para garantir que usamos a data correta
+        # Para faturamento (vlr_rol) - usar data_faturamento
+        df_filtrado_faturamento = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
+                                               filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, metrica_type='faturamento')
         
-        print(f"🏢 KPIs por Unidade de Negócio criados: {len(kpis_un)} cards (de {len(df_filtrado)} registros)")
+        # Para entrada (vlr_entrada) - usar data  
+        df_filtrado_entrada = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
+                                          filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, metrica_type='entrada')
+        
+        # Para carteira - usar padrão (normalmente data_faturamento)
+        df_filtrado_carteira = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
+                                           filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
+        
+        print(f"📊 DADOS FILTRADOS para UN:")
+        print(f"   Faturamento: {len(df_filtrado_faturamento)} registros")
+        print(f"   Entrada: {len(df_filtrado_entrada)} registros") 
+        print(f"   Carteira: {len(df_filtrado_carteira)} registros")
+        
+        # KPIs por Unidade de Negócio - CORREÇÃO: Usar dados separados por métrica
+        kpis_un = []
+        
+        # Calcular KPIs separadamente para cada métrica
+        kpis_faturamento = {}
+        kpis_entrada = {}
+        kpis_carteira = {}
+        
+        # Processar Faturamento
+        if not df_filtrado_faturamento.empty and col_unidade in df_filtrado_faturamento.columns and 'vlr_rol' in df_filtrado_faturamento.columns:
+            kpis_faturamento = df_filtrado_faturamento.groupby(col_unidade)['vlr_rol'].sum().to_dict()
+            print(f"💰 KPIs Faturamento: {kpis_faturamento}")
+        
+        # Processar Entrada  
+        if not df_filtrado_entrada.empty and col_unidade in df_filtrado_entrada.columns and 'vlr_entrada' in df_filtrado_entrada.columns:
+            kpis_entrada = df_filtrado_entrada.groupby(col_unidade)['vlr_entrada'].sum().to_dict()
+            print(f"💰 KPIs Entrada: {kpis_entrada}")
+        
+        # Processar Carteira
+        if not df_filtrado_carteira.empty and col_unidade in df_filtrado_carteira.columns and 'vlr_carteira' in df_filtrado_carteira.columns:
+            kpis_carteira = df_filtrado_carteira.groupby(col_unidade)['vlr_carteira'].sum().to_dict()
+            print(f"💰 KPIs Carteira: {kpis_carteira}")
+        
+        # Combinar todas as unidades de negócio
+        todas_unidades = set()
+        todas_unidades.update(kpis_faturamento.keys())
+        todas_unidades.update(kpis_entrada.keys())
+        todas_unidades.update(kpis_carteira.keys())
+        
+        print(f"🏢 Unidades de negócio encontradas: {len(todas_unidades)}")
+        print(f"   Unidades: {list(todas_unidades)}")
+        
+        if todas_unidades:
+            import dash_bootstrap_components as dbc
+            
+            # Criar cards para cada unidade de negócio
+            for un in sorted(todas_unidades):
+                print(f"   Processando unidade: {un}")
+                
+                vlr_rol = kpis_faturamento.get(un, 0)
+                vlr_entrada = kpis_entrada.get(un, 0) 
+                vlr_carteira = kpis_carteira.get(un, 0)
+                
+                # Card para Faturamento (vlr_rol)
+                if vlr_rol > 0:
+                    kpi_card_rol = dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6(f"R$ {vlr_rol:,.0f}", className="card-title text-success"),
+                                html.P(f"{str(un)} - Faturamento", className="card-text small text-muted")
+                            ])
+                        ], className="text-center h-100 mb-2 border-success")
+                    ], width=12, md=2)
+                    kpis_un.append(kpi_card_rol)
+                
+                # Card para Entrada (vlr_entrada)
+                if vlr_entrada > 0:
+                    kpi_card_entrada = dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6(f"R$ {vlr_entrada:,.0f}", className="card-title text-primary"),
+                                html.P(f"{str(un)} - Entrada", className="card-text small text-muted")
+                            ])
+                        ], className="text-center h-100 mb-2 border-primary")
+                    ], width=12, md=2)
+                    kpis_un.append(kpi_card_entrada)
+                
+                # Card para Carteira (vlr_carteira)
+                if vlr_carteira > 0:
+                    kpi_card_carteira = dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6(f"R$ {vlr_carteira:,.0f}", className="card-title text-warning"),
+                                html.P(f"{str(un)} - Carteira", className="card-text small text-muted")
+                            ])
+                        ], className="text-center h-100 mb-2 border-warning")
+                    ], width=12, md=2)
+                    kpis_un.append(kpi_card_carteira)
+        
+        print(f"🏢 KPIs por Unidade de Negócio criados: {len(kpis_un)} cards")
         return kpis_un
         
     except Exception as e:
         print(f"❌ Erro em update_kpis_unidades_negocio: {e}")
-        return []
-
-# Registrar callbacks do chat
+        import traceback
+        print(f"❌ Traceback: {traceback.format_exc()}")
+        return []# Registrar callbacks do chat
 try:
     from webapp.chat_interface import register_chat_callbacks
     register_chat_callbacks(app)
@@ -575,13 +750,32 @@ def display_page_content(pathname):
             return layout
         elif pathname == '/app/products':
             from webapp.layouts import create_products_layout
-            layout = create_products_layout()
-            
-            # CORREÇÃO ESPECÍFICA: Verificar se o layout de produtos é válido
-            if layout is None:
-                print(f"❌ Layout de produtos retornado é None")
+            try:
+                layout = create_products_layout()
+                
+                # CORREÇÃO ESPECÍFICA: Verificar se o layout de produtos é válido
+                if layout is None:
+                    print(f"❌ Layout de produtos retornado é None")
+                    return html.Div([
+                        dbc.Alert("Erro: Layout de produtos não encontrado", color="danger")
+                    ])
+                
+                # Validar se é um componente válido
+                if not hasattr(layout, 'children') and not isinstance(layout, (str, int, float, list)):
+                    print(f"❌ Layout de produtos não é um componente válido: {type(layout)}")
+                    return html.Div([
+                        dbc.Alert("Erro: Layout de produtos inválido", color="danger")
+                    ])
+                
+                print("✅ Layout de produtos validado com sucesso")
+                return layout
+                
+            except Exception as e:
+                print(f"❌ Erro ao criar layout de produtos: {e}")
+                import traceback
+                traceback.print_exc()
                 return html.Div([
-                    dbc.Alert("Erro: Layout de produtos não encontrado", color="danger")
+                    dbc.Alert(f"Erro ao carregar página de produtos: {str(e)}", color="danger")
                 ])
             
             # Verificar se o layout contém componentes válidos
@@ -1825,6 +2019,91 @@ def generate_ml_purchase_suggestions(analytics, df_vendas, df_cotacoes):
         print(f"Erro em generate_ml_purchase_suggestions: {e}")
         return []
 
+# =======================================
+# CALLBACKS PARA CONTROLES DA TABELA ML
+# =======================================
+
+# Callback para selecionar todas as sugestões
+@app.callback(
+    Output('ml-suggestions-table', 'selected_rows'),
+    [Input('select-all-suggestions', 'n_clicks'),
+     Input('deselect-all-suggestions', 'n_clicks')],
+    [State('ml-suggestions-table', 'data')],
+    prevent_initial_call=True
+)
+@authenticated_callback
+def manage_table_selection(select_all_clicks, deselect_all_clicks, table_data):
+    """Gerencia seleção de todas/nenhuma linha da tabela ML"""
+    ctx = dash.callback_context
+    
+    if not ctx.triggered:
+        return []
+    
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    if trigger_id == 'select-all-suggestions':
+        # Seleciona todas as linhas
+        return list(range(len(table_data))) if table_data else []
+    elif trigger_id == 'deselect-all-suggestions':
+        # Deseleciona todas as linhas
+        return []
+    
+    return []
+
+# Callback para exportar sugestões selecionadas
+@app.callback(
+    Output('export-download-ml', 'data'),
+    [Input('export-selected-suggestions', 'n_clicks')],
+    [State('ml-suggestions-table', 'data'),
+     State('ml-suggestions-table', 'selected_rows')],
+    prevent_initial_call=True
+)
+@authenticated_callback
+def export_selected_suggestions(n_clicks, table_data, selected_rows):
+    """Exporta as sugestões ML selecionadas para CSV"""
+    if not n_clicks or not table_data or not selected_rows:
+        return dash.no_update
+    
+    try:
+        import pandas as pd
+        from datetime import datetime
+        
+        # Filtra apenas as linhas selecionadas
+        selected_data = [table_data[i] for i in selected_rows]
+        
+        # Converte para DataFrame
+        df_export = pd.DataFrame(selected_data)
+        
+        # Formata os dados para export
+        if 'ml_score' in df_export.columns:
+            df_export['ml_score'] = df_export['ml_score'].round(3)
+        if 'probability' in df_export.columns:
+            df_export['probability'] = (df_export['probability'] * 100).round(1)
+        if 'estimated_revenue' in df_export.columns:
+            df_export['estimated_revenue'] = df_export['estimated_revenue'].round(0)
+        
+        # Renomeia colunas para português
+        column_rename = {
+            'cliente': 'Cliente',
+            'produto': 'Produto', 
+            'ml_score': 'Score ML',
+            'probability': 'Probabilidade (%)',
+            'estimated_revenue': 'Receita Estimada (R$)',
+            'last_purchase': 'Última Compra',
+            'category': 'Categoria'
+        }
+        df_export = df_export.rename(columns=column_rename)
+        
+        # Gera nome do arquivo com timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"sugestoes_ml_selecionadas_{timestamp}.csv"
+        
+        return dcc.send_data_frame(df_export.to_csv, filename, index=False)
+        
+    except Exception as e:
+        print(f"Erro ao exportar sugestões ML: {e}")
+        return dash.no_update
+
 # Callback para seletor de top gaps
 @app.callback(
     Output('gaps-table-container', 'children'),
@@ -2079,9 +2358,14 @@ def update_clients_status_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_h
         # CORREÇÃO ROBUSTA: Verificar quais colunas de data existem
         print(f"🔍 Colunas disponíveis no DataFrame: {list(df_filtrado.columns)}")
         
-        # Determinar qual coluna de data usar
+        # Determinar qual coluna de data usar baseado no tipo de dados
         date_column = None
-        possible_date_columns = ['data_faturamento', 'data', 'data_venda', 'date']
+        if 'total_vendas' in df_filtrado.columns:
+            # Dados da tabela de clientes
+            possible_date_columns = ['ultima_compra', 'primeira_compra', 'data_ultima_compra', 'data_primeira_compra']
+        else:
+            # Dados brutos de vendas
+            possible_date_columns = ['data_faturamento', 'data', 'data_venda', 'date']
         
         for col in possible_date_columns:
             if col in df_filtrado.columns:
@@ -2097,13 +2381,34 @@ def update_clients_status_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_h
             return fig
         
         # Agrupar dados por cliente
-        df_status = df_filtrado.groupby('cliente').agg({
-            date_column: 'max',
-            'vlr_rol': 'sum'
-        }).reset_index()
+        # CORREÇÃO: Verificar se estamos usando dados da tabela ou dados brutos
+        if 'total_vendas' in df_filtrado.columns:
+            # Dados da tabela de clientes - usar colunas da tabela
+            print("📊 Usando estrutura de dados da tabela de clientes")
+            df_status = df_filtrado.copy()
+            
+            # Renomear colunas para padronizar
+            if 'total_vendas' in df_filtrado.columns:
+                df_status['vlr_rol'] = df_status['total_vendas']
+            
+            # Usar colunas de data da tabela
+            if 'ultima_compra' in df_filtrado.columns:
+                date_column = 'ultima_compra'
+            elif 'primeira_compra' in df_filtrado.columns:
+                date_column = 'primeira_compra'
+            else:
+                date_column = None
+                
+        else:
+            # Dados brutos - agrupar normalmente
+            print("📊 Usando dados brutos - agrupando por cliente")
+            df_status = df_filtrado.groupby('cliente').agg({
+                date_column: 'max',
+                'vlr_rol': 'sum'
+            }).reset_index()
         
         # CORREÇÃO: Aplicar filtro TOP Clientes no gráfico também
-        if filtro_top_clientes and filtro_top_clientes > 0:
+        if filtro_top_clientes and filtro_top_clientes > 0 and 'vlr_rol' in df_status.columns:
             # Ordenar por faturamento e pegar apenas os TOP clientes
             df_status = df_status.nlargest(filtro_top_clientes, 'vlr_rol')
             print(f"✅ Aplicado filtro TOP {filtro_top_clientes} clientes no gráfico de status")
@@ -2111,6 +2416,7 @@ def update_clients_status_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_h
         # CORREÇÃO: Abordagem mais robusta para conversão de datetime
         today = datetime.now().date()
         try:
+            import pandas as pd  # CORREÇÃO: Import do pandas aqui
             print(f"🔍 Tipo da coluna {date_column}: {df_status[date_column].dtype}")
             print(f"🔍 Amostra dos dados: {df_status[date_column].head()}")
             
@@ -2161,6 +2467,14 @@ def update_clients_status_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_h
         
         # Conta por status
         status_counts = df_status['status'].value_counts()
+        
+        # VALIDAÇÃO: Verificar se há dados para o gráfico
+        if status_counts.empty or len(df_status) == 0:
+            print("❌ Nenhum dado de status válido encontrado")
+            import plotly.graph_objects as go
+            fig = go.Figure()
+            fig.add_annotation(text="Nenhum dado de status válido encontrado", xref="paper", yref="paper", x=0.5, y=0.5)
+            return fig
         
         if not status_counts.empty:
             import plotly.express as px
@@ -2219,7 +2533,7 @@ def update_clients_status_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_h
      Input('global-filtro-top-clientes', 'value'),  # CORREÇÃO: Usar filtro global
      Input('filter-top-produtos', 'value'),
      Input('filter-color-scale', 'value'),
-     Input('tabela-produtos', 'derived_virtual_data'),  # Dados filtrados da tabela
+     Input('tabela-analise-produtos', 'derived_virtual_data'),  # Dados filtrados da tabela
      Input('url', 'pathname')],
     prevent_initial_call=False
 )
@@ -2276,29 +2590,39 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
         print(f"🎨 Color scale mapeado: {color_scale}")
         
         print(f"📊 Dados para processamento: {len(df_filtrado)} registros")
-            print("❌ Dados de vendas vazios")
-            import plotly.graph_objects as go
-            empty_fig = go.Figure()
-            empty_fig.add_annotation(text="Nenhum dado de vendas disponível", xref="paper", yref="paper", x=0.5, y=0.5)
-            return empty_fig, empty_fig
         
-        # Aplica filtros - CORREÇÃO: incluir filtro_top_clientes 
-        df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                  filtro_hierarquia, filtro_canal, filtro_top_clientes, [0, 365])
+        print(f"🔍 Colunas disponíveis: {list(df_filtrado.columns)}")
         
-        if df_filtrado.empty:
-            print("❌ Dados filtrados vazios")
-            import plotly.graph_objects as go
-            empty_fig = go.Figure()
-            empty_fig.add_annotation(text="Nenhum dado encontrado com os filtros aplicados", xref="paper", yref="paper", x=0.5, y=0.5)
-            return empty_fig, empty_fig
+        # CORREÇÃO: Verificar se estamos usando dados da tabela ou dados brutos
+        if 'material' in df_filtrado.columns and 'cliente' not in df_filtrado.columns:
+            # Dados da tabela de produtos - estrutura diferente
+            print("📊 Usando estrutura de dados da tabela de produtos")
+            
+            # Verificar colunas disponíveis na tabela de produtos
+            if 'faturamento_total' in df_filtrado.columns:
+                df_filtrado['vlr_rol'] = df_filtrado['faturamento_total']
+            elif 'valor_total' in df_filtrado.columns:
+                df_filtrado['vlr_rol'] = df_filtrado['valor_total']
+            
+            # Para tabela de produtos, precisamos dos dados brutos
+            print("⚠️ Dados da tabela de produtos não contêm informações de clientes")
+            print("🔄 Recarregando dados brutos para gráficos...")
+            
+            # Usar filtros globais em vez dos dados da tabela
+            vendas_df = load_vendas_data()
+            if vendas_df.empty:
+                print("❌ Dados de vendas vazios")
+                empty_fig = go.Figure()
+                empty_fig.add_annotation(text="Nenhum dado de vendas disponível", xref="paper", yref="paper", x=0.5, y=0.5)
+                return empty_fig, empty_fig
+            
+            # Aplicar filtros
+            df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
+                                      filtro_hierarquia, filtro_canal, filtro_top_clientes, None)
         
         # Gráfico de bolhas - clientes x produtos
         import plotly.express as px
         import plotly.graph_objects as go
-        
-        # Verificar colunas disponíveis
-        print(f"🔍 Colunas disponíveis no DataFrame: {list(df_filtrado.columns)}")
         
         # Verificar se as colunas necessárias existem
         required_cols = ['cliente', 'produto', 'vlr_rol']
@@ -2600,6 +2924,7 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
 def update_products_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, material_filter, pathname):
     """Atualiza tabela de análise de produtos"""
     print(f"🔄 UPDATE_PRODUCTS_TABLE executado - pathname: {pathname}")
+    print(f"   Material filter recebido: {material_filter} (tipo: {type(material_filter)})")
     
     try:
         # Só processa se estiver na página de produtos
@@ -2651,9 +2976,29 @@ def update_products_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarq
             produtos_stats['recorrencia_cotacao'] = produtos_stats['recorrencia_compra'] * 1.5  # Simulado
             produtos_stats['taxa_conversao'] = 65.0  # Simulado
         
-        # Filtrar por material se selecionado
-        if material_filter:
-            produtos_stats = produtos_stats[produtos_stats['material'].isin(material_filter)]
+        # Filtrar por material se selecionado - CORREÇÃO: Melhor tratamento de múltipla seleção
+        if material_filter and len(material_filter) > 0:
+            print(f"🔍 Aplicando filtro de material: {len(material_filter)} itens selecionados")
+            print(f"   Materiais: {material_filter}")
+            
+            # Criar lista de códigos de material a partir das strings completas
+            material_codes = []
+            for item in material_filter:
+                if isinstance(item, str) and ' - ' in item:
+                    # Extrair código do material (formato: "código - descrição")
+                    code = item.split(' - ')[0].strip()
+                    material_codes.append(code)
+                else:
+                    # Se já for só o código
+                    material_codes.append(str(item))
+            
+            print(f"   Códigos extraídos: {material_codes}")
+            
+            # Filtrar pelos códigos de material
+            produtos_stats = produtos_stats[produtos_stats['material'].astype(str).isin(material_codes)]
+            print(f"   Registros após filtro: {len(produtos_stats)}")
+        else:
+            print("🔍 Nenhum filtro de material aplicado")
         
         print(f"✅ Tabela de produtos gerada: {len(produtos_stats)} registros")
         
@@ -2674,13 +3019,19 @@ def update_products_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarq
                     record[key] = str(value)  # Converter objetos pandas para string
         
         print(f"✅ Dados validados: {len(result_data)} registros prontos para retorno")
+        
+        # VALIDAÇÃO FINAL: Garantir que é sempre uma lista
+        if not isinstance(result_data, list):
+            print(f"❌ Resultado não é uma lista: {type(result_data)}")
+            return []
+        
         return result_data
         
     except Exception as e:
         print(f"❌ Erro em update_products_table: {e}")
         import traceback
         traceback.print_exc()
-        return []
+        return []  # SEMPRE retornar lista vazia em caso de erro
 
 @app.callback(
     Output('tabela-analise-produtos', 'page_size'),
@@ -2698,18 +3049,28 @@ def update_products_page_size(page_size):
 )
 def update_products_selection(select_all, deselect_all, table_data):
     """Controla seleção de linhas na tabela de produtos"""
-    ctx = callback_context
-    if not ctx.triggered or not table_data:
+    try:
+        ctx = callback_context
+        if not ctx.triggered or not table_data:
+            return []
+        
+        # Validar que table_data é uma lista
+        if not isinstance(table_data, list):
+            print(f"❌ table_data não é uma lista: {type(table_data)}")
+            return []
+        
+        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        
+        if trigger_id == 'btn-select-all-produtos':
+            return list(range(len(table_data)))
+        elif trigger_id == 'btn-deselect-all-produtos':
+            return []
+        
         return []
-    
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
-    if trigger_id == 'btn-select-all-produtos':
-        return list(range(len(table_data)))
-    elif trigger_id == 'btn-deselect-all-produtos':
+        
+    except Exception as e:
+        print(f"❌ Erro em update_products_selection: {e}")
         return []
-    
-    return []
 
 @app.callback(
     [Output('tabela-kpis-clientes', 'filter_query')],

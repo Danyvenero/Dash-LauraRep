@@ -569,6 +569,7 @@ def create_analytics_layout():
         # Componentes de download
         dcc.Download(id="download-analytics-csv"),
         dcc.Download(id="download-analytics-pdf"),
+        dcc.Download(id="export-download-ml"),  # Para exportar sugestões ML
         
         # Stores para dados
         dcc.Store(id="analytics-data-store"),
