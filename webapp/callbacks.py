@@ -181,8 +181,8 @@ def apply_filters(df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia,
             min_dias, max_dias = filtro_dias_sem_compra
             print(f"   ✅ Aplicando filtro dias sem compra: {min_dias} a {max_dias} dias")
             
-            # Se o range é o padrão [0, 365], não aplica filtro
-            if min_dias == 0 and max_dias == 365:
+            # Se o range é o padrão [0, 1095], não aplica filtro
+            if min_dias == 0 and max_dias == 1095:
                 print(f"   ⚠️ Range padrão [0, 365] - não aplicando filtro")
             elif date_column and 'cod_cliente' in df_filtrado.columns:
                 from datetime import datetime, timedelta
@@ -659,7 +659,12 @@ def update_kpis_unidades_negocio(pathname, filtro_ano, filtro_mes, filtro_client
         if todas_unidades:
             import dash_bootstrap_components as dbc
             
-            # Criar cards para cada unidade de negócio
+            # Organizar cards em três linhas separadas
+            cards_faturamento = []
+            cards_entrada = []
+            cards_carteira = []
+            
+            # Criar cards para cada unidade de negócio organizados por métrica
             for un in sorted(todas_unidades):
                 print(f"   Processando unidade: {un}")
                 
@@ -667,41 +672,75 @@ def update_kpis_unidades_negocio(pathname, filtro_ano, filtro_mes, filtro_client
                 vlr_entrada = kpis_entrada.get(un, 0) 
                 vlr_carteira = kpis_carteira.get(un, 0)
                 
-                # Card para Faturamento (vlr_rol)
+                # Card para Faturamento (vlr_rol) - Primeira linha
                 if vlr_rol > 0:
                     kpi_card_rol = dbc.Col([
                         dbc.Card([
                             dbc.CardBody([
-                                html.H6(f"R$ {vlr_rol:,.0f}", className="card-title text-success"),
+                                html.H6(f"R$ {vlr_rol:,.0f}", className="card-title text-secondary"),
                                 html.P(f"{str(un)} - Faturamento", className="card-text small text-muted")
                             ])
-                        ], className="text-center h-100 mb-2 border-success")
+                        ], className="text-center h-100 mb-2 border-secondary")
                     ], width=12, md=2)
-                    kpis_un.append(kpi_card_rol)
+                    cards_faturamento.append(kpi_card_rol)
                 
-                # Card para Entrada (vlr_entrada)
+                # Card para Entrada (vlr_entrada) - Segunda linha
                 if vlr_entrada > 0:
                     kpi_card_entrada = dbc.Col([
                         dbc.Card([
                             dbc.CardBody([
-                                html.H6(f"R$ {vlr_entrada:,.0f}", className="card-title text-primary"),
+                                html.H6(f"R$ {vlr_entrada:,.0f}", className="card-title text-secondary"),
                                 html.P(f"{str(un)} - Entrada", className="card-text small text-muted")
                             ])
-                        ], className="text-center h-100 mb-2 border-primary")
+                        ], className="text-center h-100 mb-2 border-secondary")
                     ], width=12, md=2)
-                    kpis_un.append(kpi_card_entrada)
+                    cards_entrada.append(kpi_card_entrada)
                 
-                # Card para Carteira (vlr_carteira)
+                # Card para Carteira (vlr_carteira) - Terceira linha
                 if vlr_carteira > 0:
                     kpi_card_carteira = dbc.Col([
                         dbc.Card([
                             dbc.CardBody([
-                                html.H6(f"R$ {vlr_carteira:,.0f}", className="card-title text-warning"),
+                                html.H6(f"R$ {vlr_carteira:,.0f}", className="card-title text-secondary"),
                                 html.P(f"{str(un)} - Carteira", className="card-text small text-muted")
                             ])
-                        ], className="text-center h-100 mb-2 border-warning")
+                        ], className="text-center h-100 mb-2 border-secondary")
                     ], width=12, md=2)
-                    kpis_un.append(kpi_card_carteira)
+                    cards_carteira.append(kpi_card_carteira)
+            
+            # Organizar em linhas separadas
+            if cards_faturamento:
+                # Linha 1: Cards de Faturamento
+                kpis_un.extend([
+                    dbc.Row([
+                        dbc.Col([
+                            html.H6("Faturamento por Unidade de Negócio", className="text-success mb-3")
+                        ], width=12)
+                    ], className="mb-2"),
+                    dbc.Row(cards_faturamento, className="g-2 mb-4")
+                ])
+            
+            if cards_entrada:
+                # Linha 2: Cards de Entrada
+                kpis_un.extend([
+                    dbc.Row([
+                        dbc.Col([
+                            html.H6("Entrada de Pedidos por Unidade de Negócio", className="text-primary mb-3")
+                        ], width=12)
+                    ], className="mb-2"),
+                    dbc.Row(cards_entrada, className="g-2 mb-4")
+                ])
+            
+            if cards_carteira:
+                # Linha 3: Cards de Carteira
+                kpis_un.extend([
+                    dbc.Row([
+                        dbc.Col([
+                            html.H6("Carteira por Unidade de Negócio", className="text-warning mb-3")
+                        ], width=12)
+                    ], className="mb-2"),
+                    dbc.Row(cards_carteira, className="g-2 mb-4")
+                ])
         
         print(f"🏢 KPIs por Unidade de Negócio criados: {len(kpis_un)} cards")
         return kpis_un
@@ -2532,13 +2571,47 @@ def update_clients_status_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_h
      Input('global-filtro-canal', 'value'),
      Input('global-filtro-top-clientes', 'value'),  # CORREÇÃO: Usar filtro global
      Input('filter-top-produtos', 'value'),
-     Input('filter-color-scale', 'value'),
      Input('tabela-analise-produtos', 'derived_virtual_data'),  # Dados filtrados da tabela
      Input('url', 'pathname')],
     prevent_initial_call=False
 )
-def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, top_produtos, color_scale, derived_virtual_data, pathname):
+def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, top_produtos, derived_virtual_data, pathname):
     """Atualiza gráficos da página de produtos"""
+    
+    print(f"🚀 === UPDATE_PRODUCTS_CHARTS INICIADO ===")
+    print(f"   📍 Pathname: {pathname}")
+    print(f"   📊 Parâmetros recebidos:")
+    print(f"      - filtro_ano: {filtro_ano}")
+    print(f"      - filtro_mes: {filtro_mes}")
+    print(f"      - top_produtos: {top_produtos}")
+    
+    # IMPORTS NECESSÁRIOS NO INÍCIO DA FUNÇÃO
+    import plotly.express as px
+    import plotly.graph_objects as go
+    import numpy as np
+    
+    # Importar scipy com fallback
+    try:
+        from scipy import stats
+        SCIPY_AVAILABLE = True
+        print("✅ SciPy carregado com sucesso")
+    except ImportError:
+        print("⚠️ SciPy não disponível, usando análise estatística básica")
+        SCIPY_AVAILABLE = False
+        # Fallback: implementar z-score manualmente
+        def zscore_fallback(data):
+            mean_val = np.mean(data)
+            std_val = np.std(data)
+            if std_val == 0:
+                return np.zeros_like(data)
+            return (data - mean_val) / std_val
+        
+        # Criar um objeto stats falso para compatibilidade
+        class StatsCompat:
+            def zscore(self, data):
+                return zscore_fallback(data)
+        stats = StatsCompat()
+    
     print(f"🔄 UPDATE_PRODUCTS_CHARTS executado - pathname: {pathname}")
     print(f"   Dados filtrados da tabela recebidos: {type(derived_virtual_data)}, qtd: {len(derived_virtual_data) if derived_virtual_data else 0}")
     
@@ -2551,52 +2624,290 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
         # Valores padrão para evitar erros com filtros vazios
         top_produtos = top_produtos or 20
         
-        # PRIORIDADE 1: Se houver dados filtrados da tabela, usa eles
-        if derived_virtual_data and len(derived_virtual_data) > 0:
-            print("✅ Usando dados filtrados da tabela para os gráficos de produtos")
-            import pandas as pd
-            df_filtrado = pd.DataFrame(derived_virtual_data)
-            
-        else:
-            # PRIORIDADE 2: Usar filtros globais
-            print("✅ Usando filtros globais para os gráficos de produtos")
-            vendas_df = load_vendas_data()
-            
-            if vendas_df.empty:
-                print("❌ Dados de vendas vazios")
-                return {}, {}
-            
-            # Aplicar filtros
-            df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                      filtro_hierarquia, filtro_canal, filtro_top_clientes, None)
+        # Sempre carregar dados frescos para gráficos de produtos
+        print("✅ Carregando dados de vendas para gráficos de produtos")
+        vendas_df = load_vendas_data()
+        
+        if vendas_df.empty:
+            print("❌ Dados de vendas vazios")
+            return {}, {}
+        
+        # Aplicar filtros globais
+        df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
+                                  filtro_hierarquia, filtro_canal, filtro_top_clientes, None)
+        
+        # === LÓGICA INTELIGENTE DE HIERARQUIA ===
+        # Determina qual nível de hierarquia usar baseado no filtro
+        hierarchy_level, product_column = determine_hierarchy_level(df_filtrado, filtro_hierarquia)
+        print(f"   🎯 Nível de hierarquia determinado: {hierarchy_level}, coluna: {product_column}")
+        
+        # Define número de top produtos (padrão 20 se não especificado)
+        top_n_produtos = top_produtos if top_produtos and top_produtos > 0 else 20
+        print(f"   📊 Top N produtos: {top_n_produtos}")
         
         if df_filtrado.empty:
             print("❌ Dados filtrados vazios")
             return {}, {}
         
-        # Mapeamento de color scales customizados para válidos do Plotly
-        color_scale_map = {
-            'weg_blue': 'Blues',
-            'weg_green': 'Greens', 
-            'weg_orange': 'Oranges',
-            'weg_red': 'Reds',
-            'performance': 'RdYlGn',  # Adicionando mapeamento para 'performance'
-            'thermal': 'thermal',
-            'viridis': 'viridis',
-            'plasma': 'plasma'
-        }
-        # Aplica o mapeamento IMEDIATAMENTE
-        color_scale = color_scale_map.get(color_scale, color_scale) or 'Blues'
-        print(f"🎨 Color scale mapeado: {color_scale}")
-        
         print(f"📊 Dados para processamento: {len(df_filtrado)} registros")
         
         print(f"🔍 Colunas disponíveis: {list(df_filtrado.columns)}")
         
-        # CORREÇÃO: Verificar se estamos usando dados da tabela ou dados brutos
-        if 'material' in df_filtrado.columns and 'cliente' not in df_filtrado.columns:
-            # Dados da tabela de produtos - estrutura diferente
-            print("📊 Usando estrutura de dados da tabela de produtos")
+        # === GRÁFICO DE BOLHAS (Matriz Clientes x Produtos) ===
+        print("🔍 Criando gráfico de bolhas...")
+        
+        # Verificar se as colunas necessárias existem
+        if 'cliente' not in df_filtrado.columns or product_column not in df_filtrado.columns:
+            missing_cols = []
+            if 'cliente' not in df_filtrado.columns:
+                missing_cols.append('cliente')
+            if product_column not in df_filtrado.columns:
+                missing_cols.append(product_column)
+            
+            print(f"❌ Colunas obrigatórias faltando: {missing_cols}")
+            fig_bolhas = go.Figure().add_annotation(
+                text=f"Colunas faltando: {', '.join(missing_cols)}", 
+                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+            )
+            fig_bolhas.update_layout(template='plotly_white', height=400)
+        else:
+            # Determina qual coluna de quantidade usar
+            qty_col = None
+            for col in ['qty_vendida', 'qtde', 'quantidade', 'qte']:
+                if col in df_filtrado.columns:
+                    qty_col = col
+                    break
+            
+            # Agrupa dados por cliente e produto usando a coluna inteligente determinada
+            agg_dict = {'vlr_rol': 'sum'}
+            if qty_col:
+                agg_dict[qty_col] = 'sum'
+            
+            matriz_data = df_filtrado.groupby(['cliente', product_column]).agg(agg_dict).reset_index()
+            
+            if len(matriz_data) > 0:
+                # Para clientes: usar o filtro global ou padrão 10
+                num_top_clientes = filtro_top_clientes if filtro_top_clientes and filtro_top_clientes > 0 else 10
+                
+                # Selecionar top clientes e produtos
+                top_clientes = matriz_data.groupby('cliente')['vlr_rol'].sum().nlargest(num_top_clientes).index
+                top_produtos_viz = matriz_data.groupby(product_column)['vlr_rol'].sum().nlargest(top_n_produtos).index
+                
+                print(f"   📊 Top {num_top_clientes} clientes × Top {top_n_produtos} produtos selecionados")
+                
+                # Filtra a matriz final
+                matriz_filtered = matriz_data[
+                    (matriz_data['cliente'].isin(top_clientes)) & 
+                    (matriz_data[product_column].isin(top_produtos_viz))
+                ]
+                
+                if not matriz_filtered.empty:
+                    # === IMPLEMENTAÇÃO DE ANÁLISE ESTATÍSTICA E NORMALIZAÇÃO ===
+                    
+                    print("🔬 Iniciando análise estatística para matriz de oportunidades...")
+                    
+                    # 1. PREPARAR DADOS PARA ANÁLISE ESTATÍSTICA
+                    # Calcular estatísticas globais de cada produto
+                    produto_stats = df_filtrado.groupby(product_column).agg({
+                        'vlr_rol': ['sum', 'mean', 'count', 'std'],
+                        'cliente': 'nunique'
+                    }).reset_index()
+                    
+                    # Flatten das colunas
+                    produto_stats.columns = [product_column, 'faturamento_total', 'faturamento_medio', 
+                                           'freq_vendas', 'desvio_padrao', 'num_clientes']
+                    produto_stats['desvio_padrao'] = produto_stats['desvio_padrao'].fillna(0)
+                    
+                    # Calcular métricas de penetração e demanda
+                    total_clientes = df_filtrado['cliente'].nunique()
+                    produto_stats['penetracao_mercado'] = (produto_stats['num_clientes'] / total_clientes) * 100
+                    produto_stats['demanda_relativa'] = stats.zscore(produto_stats['faturamento_total'])
+                    produto_stats['indice_oportunidade'] = produto_stats['faturamento_total'] / (produto_stats['penetracao_mercado'] + 1)
+                    
+                    print(f"   📊 Estatísticas calculadas para {len(produto_stats)} produtos")
+                    
+                    # 2. ANÁLISE DE OPORTUNIDADES POR CLIENTE-PRODUTO
+                    # Identificar produtos com alta demanda geral mas baixa penetração específica
+                    
+                    # Merge das estatísticas com a matriz
+                    matriz_enhanced = matriz_filtered.merge(
+                        produto_stats[[product_column, 'faturamento_total', 'penetracao_mercado', 
+                                     'demanda_relativa', 'indice_oportunidade']], 
+                        on=product_column, 
+                        suffixes=('_cliente', '_global')
+                    )
+                    
+                    # Calcular score de oportunidade para cada cliente-produto
+                    # Score alto = produto com alta demanda global + baixa penetração no cliente
+                    matriz_enhanced['participacao_cliente'] = (
+                        matriz_enhanced['vlr_rol'] / matriz_enhanced['faturamento_total']
+                    ) * 100
+                    
+                    # Score de oportunidade: produtos com alta demanda global mas baixa participação do cliente
+                    matriz_enhanced['score_oportunidade'] = (
+                        matriz_enhanced['indice_oportunidade'] * 
+                        (100 - matriz_enhanced['participacao_cliente']) / 100
+                    )
+                    
+                    # 3. NORMALIZAÇÃO ESTATÍSTICA PARA CORES
+                    # Usar percentis em vez de min-max para evitar outliers
+                    
+                    # Normalizar score de oportunidade usando percentis
+                    p25 = np.percentile(matriz_enhanced['score_oportunidade'], 25)
+                    p75 = np.percentile(matriz_enhanced['score_oportunidade'], 75)
+                    
+                    # Winsorização: limitar valores extremos aos percentis 5-95
+                    p5 = np.percentile(matriz_enhanced['score_oportunidade'], 5)
+                    p95 = np.percentile(matriz_enhanced['score_oportunidade'], 95)
+                    
+                    matriz_enhanced['score_normalizado'] = np.clip(
+                        matriz_enhanced['score_oportunidade'], p5, p95
+                    )
+                    
+                    # Escala final 0-100 para cores
+                    score_min = matriz_enhanced['score_normalizado'].min()
+                    score_max = matriz_enhanced['score_normalizado'].max()
+                    
+                    if score_max > score_min:
+                        matriz_enhanced['cor_score'] = 100 * (
+                            (matriz_enhanced['score_normalizado'] - score_min) / (score_max - score_min)
+                        )
+                    else:
+                        matriz_enhanced['cor_score'] = 50  # Valor médio se todos iguais
+                    
+                    # 4. NORMALIZAÇÃO DO TAMANHO DAS BOLHAS
+                    # Usar log para comprimir a escala quando há valores muito diferentes
+                    
+                    matriz_enhanced['vlr_rol_abs'] = matriz_enhanced['vlr_rol'].abs()
+                    matriz_enhanced['vlr_rol_abs'] = matriz_enhanced['vlr_rol_abs'].replace(0, 1)
+                    
+                    # Log normalização para tamanho
+                    matriz_enhanced['tamanho_log'] = np.log1p(matriz_enhanced['vlr_rol_abs'])
+                    
+                    # Normalizar tamanho para range 10-50 (evita bolhas muito pequenas ou grandes)
+                    tamanho_min = matriz_enhanced['tamanho_log'].min()
+                    tamanho_max = matriz_enhanced['tamanho_log'].max()
+                    
+                    if tamanho_max > tamanho_min:
+                        matriz_enhanced['tamanho_normalizado'] = 10 + 40 * (
+                            (matriz_enhanced['tamanho_log'] - tamanho_min) / (tamanho_max - tamanho_min)
+                        )
+                    else:
+                        matriz_enhanced['tamanho_normalizado'] = 25  # Tamanho médio
+                    
+                    print(f"   ✅ Normalização estatística concluída")
+                    print(f"   📈 Score de oportunidade: {matriz_enhanced['score_oportunidade'].min():.2f} - {matriz_enhanced['score_oportunidade'].max():.2f}")
+                    print(f"   🎨 Score normalizado para cores: {matriz_enhanced['cor_score'].min():.1f} - {matriz_enhanced['cor_score'].max():.1f}")
+                    
+                    # 5. CRIAR GRÁFICO COM ANÁLISE ESTATÍSTICA
+                    import plotly.express as px
+                    import plotly.graph_objects as go
+                    
+                    # Criar custom hover template com métricas estatísticas
+                    hover_template = (
+                        "<b>%{customdata[0]}</b><br>" +
+                        "<b>Produto:</b> %{y}<br>" +
+                        "<b>Faturamento Cliente:</b> R$ %{customdata[1]:,.0f}<br>" +
+                        "<b>Score Oportunidade:</b> %{customdata[2]:.1f}<br>" +
+                        "<b>Penetração Mercado:</b> %{customdata[3]:.1f}%<br>" +
+                        "<b>Participação Cliente:</b> %{customdata[4]:.1f}%<br>" +
+                        "<b>Demanda Global:</b> R$ %{customdata[5]:,.0f}<br>" +
+                        "<extra></extra>"
+                    )
+                    
+                    # Preparar dados customizados para hover
+                    custom_data = np.array([
+                        matriz_enhanced['cliente'],
+                        matriz_enhanced['vlr_rol'],
+                        matriz_enhanced['score_oportunidade'],
+                        matriz_enhanced['penetracao_mercado'],
+                        matriz_enhanced['participacao_cliente'],
+                        matriz_enhanced['faturamento_total']
+                    ]).T
+                    
+                    fig_bolhas = go.Figure()
+                    
+                    # Adicionar scatter com dados normalizados
+                    fig_bolhas.add_trace(go.Scatter(
+                        x=matriz_enhanced['cliente'],
+                        y=matriz_enhanced[product_column],
+                        mode='markers',
+                        marker=dict(
+                            size=matriz_enhanced['tamanho_normalizado'],
+                            color=matriz_enhanced['cor_score'],
+                            colorscale='RdYlBu_r',  # Vermelho = alta oportunidade, azul = baixa
+                            colorbar=dict(
+                                title="Score de<br>Oportunidade",
+                                thickness=15,
+                                len=0.7
+                            ),
+                            sizemode='diameter',
+                            sizemin=8,
+                            line=dict(width=1, color='rgba(0,51,102,0.3)'),
+                            opacity=0.8
+                        ),
+                        customdata=custom_data,
+                        hovertemplate=hover_template,
+                        name=""
+                    ))
+                    
+                    # Layout profissional com informações estatísticas
+                    fig_bolhas.update_layout(
+                        title=dict(
+                            text=(
+                                f'Matriz de Oportunidades: Clientes × Produtos<br>'
+                                f'<span style="font-size:14px">'
+                                f'Top {num_top_clientes} Clientes × Top {top_n_produtos} Produtos | '
+                                f'Análise Estatística de Demanda e Penetração'
+                                f'</span>'
+                            ),
+                            x=0.5,
+                            xanchor='center',
+                            font=dict(size=18, color='#003366')
+                        ),
+                        height=650,
+                        template='plotly_white',
+                        font=dict(family="Arial", size=12),
+                        xaxis=dict(
+                            title="Cliente",
+                            tickangle=45
+                        ),
+                        yaxis=dict(
+                            title="Produto"
+                        ),
+                        margin=dict(l=200, r=140, t=120, b=150),
+                        hovermode='closest',
+                        annotations=[
+                            dict(
+                                text=(
+                                    "🔴 Alta Oportunidade: Produtos com alta demanda global e baixa penetração no cliente<br>"
+                                    "🔵 Baixa Oportunidade: Produtos já bem explorados pelo cliente"
+                                ),
+                                xref="paper", yref="paper",
+                                x=0.02, y=0.98,
+                                xanchor="left", yanchor="top",
+                                font=dict(size=10, color='#666666'),
+                                showarrow=False,
+                                bgcolor="rgba(255,255,255,0.8)",
+                                bordercolor="rgba(200,200,200,0.8)",
+                                borderwidth=1
+                            )
+                        ]
+                    )
+                    
+                    print("✅ Gráfico de matriz de oportunidades criado com análise estatística")
+                else:
+                    fig_bolhas = go.Figure().add_annotation(
+                        text="Sem dados para matriz após filtros", 
+                        xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+                    )
+                    fig_bolhas.update_layout(template='plotly_white', height=400)
+            else:
+                fig_bolhas = go.Figure().add_annotation(
+                    text="Sem dados para processar", 
+                    xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+                )
+                fig_bolhas.update_layout(template='plotly_white', height=400)
             
             # Verificar colunas disponíveis na tabela de produtos
             if 'faturamento_total' in df_filtrado.columns:
@@ -2674,134 +2985,42 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
         
         print(f"🔍 Aplicando filtros visuais: Top {num_top_clientes} clientes × Top {num_top_produtos} produtos")
         
-        if not bubble_data.empty:
-            top_clientes_viz = bubble_data.groupby('cliente')['vlr_rol_abs'].sum().nlargest(num_top_clientes).index
-            top_produtos_viz = bubble_data.groupby('produto')['vlr_rol_abs'].sum().nlargest(num_top_produtos).index
-            
-            bubble_data_filtered = bubble_data[
-                (bubble_data['cliente'].isin(top_clientes_viz)) & 
-                (bubble_data['produto'].isin(top_produtos_viz))
-            ]
-            
-            print(f"✅ Dados filtrados para visualização: {len(bubble_data_filtered)} registros")
-        else:
-            bubble_data_filtered = bubble_data
+        # === GRÁFICO DE PARETO (Produtos por Faturamento) ===
+        print("🔍 Criando gráfico de Pareto...")
         
-        if not bubble_data_filtered.empty and len(bubble_data_filtered) > 0:
-            try:
-                fig_bolhas = px.scatter(
-                    bubble_data_filtered,
-                    x='cliente',
-                    y='produto',
-                    size='vlr_rol_abs',  # Usar valor absoluto
-                    color='qtd_abs',  # Usar coluna dinâmica de quantidade
-                    title=f"Matriz Clientes × Produtos (Top {num_top_clientes} Clientes × Top {num_top_produtos} Produtos)",
-                    labels={'vlr_rol_abs': 'Faturamento (R$)', 'qtd_abs': 'Quantidade'},
-                    color_continuous_scale=color_scale,
-                    hover_data={
-                        'vlr_rol_abs': ':,.0f',  # Formato de número com vírgulas
-                        'qtd_abs': ':,.0f',      # Formato de número com vírgulas 
-                        'cliente': False,        # Não mostrar no hover (já está no eixo)
-                        'produto': False         # Não mostrar no hover (já está no eixo)
-                    }
-                )
-                
-                # MELHORIA VISUAL: Layout profissional com tema WEG
-                fig_bolhas.update_layout(
-                    height=650,
-                    width=1200,
-                    template='plotly_white',
-                    font=dict(family="Arial", size=12),
-                    title=dict(
-                        text=f"Matriz Clientes × Produtos<br><span style='font-size:14px'>Top {num_top_clientes} Clientes × Top {num_top_produtos} Produtos</span>",
-                        x=0.5,
-                        xanchor='center',
-                        font=dict(size=18, color='#003366')
-                    ),
-                    xaxis=dict(
-                        title=dict(text="Cliente", font=dict(size=14, color='#003366')),
-                        tickangle=45,
-                        tickfont=dict(size=10),
-                        gridcolor='rgba(0,0,0,0.1)',
-                        showgrid=True
-                    ),
-                    yaxis=dict(
-                        title=dict(text="Produto", font=dict(size=14, color='#003366')),
-                        tickfont=dict(size=10),
-                        gridcolor='rgba(0,0,0,0.1)',
-                        showgrid=True
-                    ),
-                    margin=dict(l=180, r=80, t=100, b=150),
-                    plot_bgcolor='rgba(248,249,250,0.8)',
-                    paper_bgcolor='white',
-                    coloraxis_colorbar=dict(
-                        title=dict(text="Quantidade", font=dict(size=12)),
-                        titleside="right"
-                    )
-                )
-                
-                # Ajustar tamanho das bolhas para melhor visualização
-                if len(bubble_data_filtered) > 0:
-                    max_val = bubble_data_filtered['vlr_rol_abs'].max()
-                    if max_val > 0:
-                        fig_bolhas.update_traces(
-                            marker=dict(
-                                sizemode='diameter',
-                                sizeref=2.*max_val/(20.**2),
-                                sizemin=4,
-                                line=dict(width=1, color='rgba(0,51,102,0.3)')
-                            )
-                        )
-                
-                print("✅ Gráfico de bolhas criado com sucesso")
-                
-            except Exception as e:
-                print(f"❌ Erro ao criar gráfico de bolhas: {e}")
-                import traceback
-                traceback.print_exc()
-                fig_bolhas = go.Figure()
-                fig_bolhas.add_annotation(text=f"Erro no gráfico: {str(e)}", xref="paper", yref="paper", x=0.5, y=0.5)
-                fig_bolhas.update_layout(template='plotly_white', height=400)
-        else:
-            fig_bolhas = go.Figure()
-            fig_bolhas.add_annotation(text="Nenhum dado disponível para gráfico de bolhas", xref="paper", yref="paper", x=0.5, y=0.5)
-            fig_bolhas.update_layout(template='plotly_white', height=400)
-        
-        # Gráfico de Pareto (usar 'produto' em vez de 'cod_produto')
         try:
-            print("🔍 Criando gráfico de Pareto...")
+            # Cria dados para Pareto usando a coluna de produto inteligente
+            pareto_data = df_filtrado.groupby(product_column)['vlr_rol'].sum().sort_values(ascending=False).reset_index()
+            pareto_data = pareto_data.head(num_top_produtos)
             
-            if 'produto' not in df_filtrado.columns:
-                print("❌ Coluna 'produto' não encontrada para Pareto")
-                fig_pareto = go.Figure()
-                fig_pareto.add_annotation(text="Coluna 'produto' não encontrada", xref="paper", yref="paper", x=0.5, y=0.5)
-                fig_pareto.update_layout(template='plotly_white', height=400)
+            if len(pareto_data) > 0:
+                pareto_data['faturamento_acumulado'] = pareto_data['vlr_rol'].cumsum()
+                pareto_data['percentual_acumulado'] = (pareto_data['faturamento_acumulado'] / pareto_data['vlr_rol'].sum()) * 100
+                print(f"✅ Dados Pareto preparados: {len(pareto_data)} produtos")
             else:
-                pareto_data = df_filtrado.groupby('produto')['vlr_rol'].sum().reset_index()
-                pareto_data = pareto_data.sort_values('vlr_rol', ascending=False).head(top_produtos)
-                
-                if len(pareto_data) > 0:
-                    pareto_data['cumulative_pct'] = pareto_data['vlr_rol'].cumsum() / pareto_data['vlr_rol'].sum() * 100
-                    print(f"✅ Dados Pareto preparados: {len(pareto_data)} produtos")
-                else:
-                    print("❌ Nenhum dado para Pareto após agregação")
-                    fig_pareto = go.Figure()
-                    fig_pareto.add_annotation(text="Nenhum produto encontrado", xref="paper", yref="paper", x=0.5, y=0.5)
-                    fig_pareto.update_layout(template='plotly_white', height=400)
+                print("❌ Nenhum dado para Pareto após agregação")
+                fig_pareto = go.Figure().add_annotation(
+                    text="Nenhum produto encontrado", 
+                    xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+                )
+                fig_pareto.update_layout(template='plotly_white', height=400)
                     
         except Exception as e:
             print(f"❌ Erro ao preparar dados Pareto: {e}")
-            fig_pareto = go.Figure()
-            fig_pareto.add_annotation(text=f"Erro na preparação: {str(e)}", xref="paper", yref="paper", x=0.5, y=0.5)
+            fig_pareto = go.Figure().add_annotation(
+                text=f"Erro na preparação: {str(e)}", 
+                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+            )
             fig_pareto.update_layout(template='plotly_white', height=400)
         
-        if not pareto_data.empty and len(pareto_data) > 0:
+        # Criar o gráfico de Pareto se há dados válidos
+        if 'pareto_data' in locals() and not pareto_data.empty and len(pareto_data) > 0:
             try:
                 fig_pareto = go.Figure()
                 
-                # Barras com estilo WEG
+                # Barras de faturamento com estilo profissional
                 fig_pareto.add_trace(go.Bar(
-                    x=pareto_data['produto'],
+                    x=pareto_data[product_column],
                     y=pareto_data['vlr_rol'],
                     name='Faturamento',
                     yaxis='y',
@@ -2812,10 +3031,10 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
                     hovertemplate='<b>%{x}</b><br>Faturamento: R$ %{y:,.0f}<extra></extra>'
                 ))
                 
-                # Linha cumulative com estilo profissional
+                # Linha de percentual acumulado
                 fig_pareto.add_trace(go.Scatter(
-                    x=pareto_data['produto'],
-                    y=pareto_data['cumulative_pct'],
+                    x=pareto_data[product_column],
+                    y=pareto_data['percentual_acumulado'],
                     mode='lines+markers',
                     name='% Acumulado',
                     yaxis='y2',
@@ -2824,77 +3043,52 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
                     hovertemplate='<b>%{x}</b><br>% Acumulado: %{y:.1f}%<extra></extra>'
                 ))
                 
-                # Layout profissional do Pareto
+                # Layout profissional simplificado
                 fig_pareto.update_layout(
-                    title=dict(
-                        text="Análise de Pareto - Faturamento por Produto<br><span style='font-size:14px'>Distribuição 80/20 do faturamento</span>",
-                        x=0.5,
-                        xanchor='center',
-                        font=dict(size=18, color='#003366')
-                    ),
+                    title="Análise de Pareto - Faturamento por Produto",
                     height=550,
                     template='plotly_white',
-                    font=dict(family="Arial", size=12),
-                    plot_bgcolor='rgba(248,249,250,0.8)',
-                    paper_bgcolor='white',
                     yaxis=dict(
-                        title=dict(text="Faturamento (R$)", font=dict(size=14, color='#003366')),
-                        gridcolor='rgba(0,0,0,0.1)',
-                        showgrid=True,
+                        title="Faturamento (R$)",
                         tickformat=',.0f'
                     ),
                     yaxis2=dict(
-                        title=dict(text="% Acumulado", font=dict(size=14, color='#dc3545')),
+                        title="% Acumulado",
                         overlaying='y',
                         side='right',
-                        gridcolor='rgba(220,53,69,0.1)',
-                        showgrid=False,
                         range=[0, 100],
                         tickformat='.0f',
                         ticksuffix='%'
                     ),
                     xaxis=dict(
-                        title=dict(text="Produto", font=dict(size=14, color='#003366')),
-                        tickangle=45,
-                        tickfont=dict(size=10),
-                        gridcolor='rgba(0,0,0,0.1)',
-                        showgrid=True
+                        title="Produto",
+                        tickangle=45
                     ),
-                    legend=dict(
-                        orientation="h",
-                        yanchor="bottom",
-                        y=1.02,
-                        xanchor="right",
-                        x=1,
-                        bgcolor='rgba(255,255,255,0.8)',
-                        bordercolor='rgba(0,0,0,0.2)',
-                        borderwidth=1
-                    ),
-                    margin=dict(l=80, r=80, t=100, b=120),
-                    hovermode='x unified'
+                    margin=dict(l=80, r=80, t=100, b=120)
                 )
                 
                 # Adicionar linha de referência 80%
                 fig_pareto.add_hline(
                     y=80, 
                     yref='y2',
-                    line=dict(dash="dash", color="red", width=2),
-                    annotation_text="80% Acumulado",
-                    annotation_position="top right"
+                    line_dash="dash", 
+                    line_color="red"
                 )
                 
                 print("✅ Gráfico de Pareto criado com sucesso")
                 
             except Exception as e:
                 print(f"❌ Erro ao criar gráfico de Pareto: {e}")
-                import traceback
-                traceback.print_exc()
-                fig_pareto = go.Figure()
-                fig_pareto.add_annotation(text=f"Erro no gráfico Pareto: {str(e)}", xref="paper", yref="paper", x=0.5, y=0.5)
+                fig_pareto = go.Figure().add_annotation(
+                    text=f"Erro no gráfico Pareto: {str(e)}", 
+                    xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+                )
                 fig_pareto.update_layout(template='plotly_white', height=400)
         else:
-            fig_pareto = go.Figure()
-            fig_pareto.add_annotation(text="Nenhum dado disponível para análise de Pareto", xref="paper", yref="paper", x=0.5, y=0.5)
+            fig_pareto = go.Figure().add_annotation(
+                text="Nenhum dado disponível para análise de Pareto", 
+                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+            )
             fig_pareto.update_layout(template='plotly_white', height=400)
         
         print(f"✅ Gráficos de produtos gerados")
@@ -2904,9 +3098,13 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
         print(f"❌ Erro em update_products_charts: {e}")
         import traceback
         traceback.print_exc()
-        import plotly.graph_objects as go
-        empty_fig = go.Figure()
-        empty_fig.add_annotation(text=f"Erro: {str(e)}", xref="paper", yref="paper", x=0.5, y=0.5)
+        
+        # go já está importado no início da função
+        empty_fig = go.Figure().add_annotation(
+            text=f"Erro geral: {str(e)}", 
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+        )
+        empty_fig.update_layout(template='plotly_white', height=400)
         return empty_fig, empty_fig
 
 # Callbacks adicionais para tela de produtos
@@ -3003,29 +3201,61 @@ def update_products_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarq
         print(f"✅ Tabela de produtos gerada: {len(produtos_stats)} registros")
         
         # CORREÇÃO: Verificar se os dados são válidos antes de retornar
+        if produtos_stats.empty:
+            print("⚠️ produtos_stats está vazio após processamento")
+            return []
+        
         result_data = produtos_stats.head(100).to_dict('records')
         
-        # Validar se todos os registros são dicionários válidos
+        # Validar e limpar dados antes do retorno
+        cleaned_data = []
         for i, record in enumerate(result_data):
             if not isinstance(record, dict):
                 print(f"❌ Registro {i} não é um dicionário válido: {type(record)}")
-                return []
+                continue
             
-            # Verificar se não há valores inválidos
+            # Criar novo registro limpo
+            clean_record = {}
             for key, value in record.items():
-                if value is None:
-                    record[key] = 0  # Substituir None por 0
-                elif hasattr(value, 'dtype') and 'object' in str(value.dtype):
-                    record[key] = str(value)  # Converter objetos pandas para string
+                # Converter NaN, None e valores problemáticos
+                if value is None or (hasattr(value, '__iter__') and not isinstance(value, str) and len(str(value)) == 0):
+                    clean_record[key] = ""
+                elif hasattr(value, 'isna') and value.isna():
+                    clean_record[key] = 0 if key in ['faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao'] else ""
+                elif isinstance(value, (int, float)):
+                    # Verificar se é um número válido
+                    if str(value).lower() in ['nan', 'inf', '-inf']:
+                        clean_record[key] = 0 if key in ['faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao'] else ""
+                    else:
+                        clean_record[key] = float(value) if key in ['faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao'] else value
+                else:
+                    clean_record[key] = str(value) if value is not None else ""
+            
+            # Verificar se o registro tem as colunas obrigatórias
+            required_fields = ['material', 'produto', 'hierarquia', 'faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao']
+            
+            # Garantir que todos os campos obrigatórios existem
+            for field in required_fields:
+                if field not in clean_record:
+                    if field in ['faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao']:
+                        clean_record[field] = 0
+                    else:
+                        clean_record[field] = ""
+            
+            cleaned_data.append(clean_record)
         
-        print(f"✅ Dados validados: {len(result_data)} registros prontos para retorno")
+        print(f"✅ Dados validados e limpos: {len(cleaned_data)} registros prontos para retorno")
         
-        # VALIDAÇÃO FINAL: Garantir que é sempre uma lista
-        if not isinstance(result_data, list):
-            print(f"❌ Resultado não é uma lista: {type(result_data)}")
+        # VALIDAÇÃO FINAL: Garantir que é sempre uma lista válida
+        if not isinstance(cleaned_data, list):
+            print(f"❌ Resultado não é uma lista: {type(cleaned_data)}")
             return []
         
-        return result_data
+        # Log dos primeiros registros para debug
+        if cleaned_data:
+            print(f"🔍 Exemplo do primeiro registro: {list(cleaned_data[0].keys()) if cleaned_data[0] else 'vazio'}")
+        
+        return cleaned_data
         
     except Exception as e:
         print(f"❌ Erro em update_products_table: {e}")

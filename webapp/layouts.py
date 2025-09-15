@@ -34,7 +34,8 @@ def create_sidebar():
                     max=datetime.datetime.now().year + 1,
                     step=1,
                     value=[2018, datetime.datetime.now().year],
-                    marks={year: str(year) for year in range(2018, datetime.datetime.now().year + 1, 1)},
+                    marks={year: {'label': str(year), 'style': {'color': 'white', 'fontSize': '11px'}} 
+                          for year in range(2018, datetime.datetime.now().year + 1, 1)},
                     tooltip={"placement": "bottom", "always_visible": True},
                     className="mb-3"
                 )
@@ -126,9 +127,9 @@ def create_sidebar():
                 dcc.RangeSlider(
                     id='global-filtro-dias-sem-compra',
                     min=0,
-                    max=365,
-                    value=[0, 365],
-                    marks={0: '0', 90: '90', 180: '180', 365: '365+'},
+                    max=1095,
+                    value=[0, 1095],
+                    marks={0: '0', 365: '1 ano', 730: '2 anos', 1095: '3 anos'},
                     tooltip={"placement": "bottom", "always_visible": True}
                 )
             ], className="mb-4")
@@ -202,7 +203,7 @@ def create_overview_layout():
             dbc.Col([
                 dbc.Card([
                     dbc.CardBody([
-                        html.H4(id="kpi-valor-carteira", className="kpi-value text-info"),
+                        html.H4(id="kpi-valor-carteira", className="kpi-value text-secondary"),
                         html.P("Valor Carteira", className="kpi-label"),
                         html.P(id="kpi-carteira-variacao", className="kpi-change")
                     ])
@@ -326,19 +327,19 @@ def create_clients_layout():
                         'width': '200px'
                     },
                     {
-                        'if': {'filter_query': '{dias_sem_compra} > 365'},
+                        'if': {'filter_query': '{dias_sem_compra} > 730'},
                         'backgroundColor': '#ffebee',
                         'color': '#f5697e',
                         'fontWeight': 'bold'
                     },
                     {
-                        'if': {'filter_query': '{dias_sem_compra} > 90 && {dias_sem_compra} <= 365'},
+                        'if': {'filter_query': '{dias_sem_compra} > 365 && {dias_sem_compra} <= 730'},
                         'backgroundColor': '#fff8e1',
                         'color': '#fac002',
                         'fontWeight': 'bold'
                     },
                     {
-                        'if': {'filter_query': '{dias_sem_compra} <= 90'},
+                        'if': {'filter_query': '{dias_sem_compra} <= 365'},
                         'backgroundColor': '#e8f5e8',
                         'color': '#456945',
                         'fontWeight': 'bold'
@@ -371,20 +372,7 @@ def create_products_layout():
                             dbc.Col([
                                 html.Label("Top Produtos:", className="small"),
                                 dbc.Input(id="filter-top-produtos", type="number", value=20, min=5, max=50)
-                            ], width=6),
-                            dbc.Col([
-                                html.Label("Paleta de Cores:", className="small"),
-                                dcc.Dropdown(
-                                    id="filter-color-scale",
-                                    options=[
-                                        {"label": "WEG Blue", "value": "weg_blue"},
-                                        {"label": "Performance", "value": "performance"},
-                                        {"label": "Viridis", "value": "viridis"},
-                                        {"label": "Plasma", "value": "plasma"}
-                                    ],
-                                    value="weg_blue"
-                                )
-                            ], width=6)
+                            ], width=12)
                         ])
                     ])
                 ])
@@ -394,8 +382,8 @@ def create_products_layout():
                     dbc.Button("📥 Download CSV", id="btn-download-csv-produtos", color="primary"),
                     dbc.Button("📄 PDF por Cliente", id="btn-pdf-cliente", color="success"),
                     dbc.Button("🤖 Sugestões IA", id="btn-sugestoes-ia", color="info")
-                ], className="mb-2 d-flex justify-content-end")
-            ], width=12, md=4, className="d-flex align-items-center justify-content-end")
+                ], className="d-flex justify-content-end")
+            ], width=12, md=4, className="d-flex align-items-end justify-content-end")
         ], className="mb-4"),
         
         # Gráfico de bolhas
