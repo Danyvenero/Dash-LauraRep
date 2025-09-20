@@ -160,8 +160,8 @@ def apply_filters(df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia,
             min_dias, max_dias = filtro_dias_sem_compra
             print(f"   ✅ Aplicando filtro dias sem compra: {min_dias} a {max_dias} dias")
             
-            # Se o range é o padrão [0, 365], não aplica filtro
-            if min_dias == 0 and max_dias == 365:
+            # Se o range é o padrão [0, 1095], não aplica filtro
+            if min_dias == 0 and max_dias == 1095:
                 print(f"   ⚠️ Range padrão [0, 365] - não aplicando filtro")
             elif date_column and 'cod_cliente' in df_filtrado.columns:
                 from datetime import datetime, timedelta
@@ -521,7 +521,7 @@ def update_kpis_unidades_negocio(pathname, filtro_ano, filtro_mes, filtro_client
                 kpi_card = dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
-                            html.H6(f"R$ {valor:,.0f}", className="card-title text-primary"),
+                            html.H6(f"R$ {valor:,.0f}", className="card-title text-secondary"),
                             html.P(str(un), className="card-text small")
                         ])
                     ], className="text-center h-100 mb-2")
@@ -1437,56 +1437,57 @@ def update_clients_table_page_size(page_size):
     print(f"🔄 UPDATE_CLIENTS_TABLE_PAGE_SIZE: {page_size}")
     return page_size or 25
 
+# CALLBACK DESABILITADO - Duplicado com callbacks.py
 # Callback para gráficos de produtos - REATIVO A FILTROS
-@app.callback(
-    [Output('grafico-bolhas-produtos', 'figure'),
-     Output('grafico-pareto-produtos', 'figure')],
-    [Input('url', 'pathname'),
-     Input('global-filtro-ano', 'value'),
-     Input('global-filtro-mes', 'value'),
-     Input('global-filtro-cliente', 'value'),
-     Input('global-filtro-hierarquia', 'value'),
-     Input('global-filtro-canal', 'value'),
-     Input('global-filtro-top-clientes', 'value'),
-     Input('global-filtro-dias-sem-compra', 'value'),
-     Input('filter-top-produtos', 'value'),
-     Input('filter-color-scale', 'value')],
-    prevent_initial_call=False
-)
-def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, top_produtos, color_scale):
-    """Atualiza gráficos da página de produtos"""
-    print(f"🔄 UPDATE_PRODUCTS_CHARTS executado - pathname: {pathname}")
-    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
-    print(f"   Hierarquia={filtro_hierarquia}, Top Produtos={top_produtos}, Paleta={color_scale}")
-    
-    try:
-        import plotly.graph_objects as go
-        import plotly.express as px
-        
-        # Define paleta de cores baseada na seleção
-        color_map = {
-            'weg_blue': 'Blues',
-            'performance': 'RdYlGn', 
-            'viridis': 'Viridis',
-            'plasma': 'Plasma'
-        }
-        color_sequence = color_map.get(color_scale, 'Blues')
-        
-        # Processa sempre, mas mostra mensagem se não for página de produtos
-        vendas_df = load_vendas_data()
-        
-        if vendas_df.empty:
-            print("❌ Dados de vendas vazios")
-            fig_empty = go.Figure().add_annotation(
-                text="Sem dados disponíveis", 
-                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-            )
-            return fig_empty, fig_empty
-        
-        # Aplica filtros usando a função centralizada
-        df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
-        
-        # === LÓGICA INTELIGENTE DE HIERARQUIA ===
+# @app.callback(
+#     [Output('grafico-bolhas-produtos', 'figure'),
+#      Output('grafico-pareto-produtos', 'figure')],
+#     [Input('url', 'pathname'),
+#      Input('global-filtro-ano', 'value'),
+#      Input('global-filtro-mes', 'value'),
+#      Input('global-filtro-cliente', 'value'),
+#      Input('global-filtro-hierarquia', 'value'),
+#      Input('global-filtro-canal', 'value'),
+#      Input('global-filtro-top-clientes', 'value'),
+#      Input('global-filtro-dias-sem-compra', 'value'),
+#      Input('filter-top-produtos', 'value'),
+#      Input('filter-color-scale', 'value')],
+#     prevent_initial_call=False
+# )
+# def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, top_produtos, color_scale):
+#     """Atualiza gráficos da página de produtos"""
+#     print(f"🔄 UPDATE_PRODUCTS_CHARTS executado - pathname: {pathname}")
+#     print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
+#     print(f"   Hierarquia={filtro_hierarquia}, Top Produtos={top_produtos}, Paleta={color_scale}")
+#     
+#     try:
+#         import plotly.graph_objects as go
+#         import plotly.express as px
+#         
+#         # Define paleta de cores baseada na seleção
+#         color_map = {
+#             'weg_blue': 'Blues',
+#             'performance': 'RdYlGn', 
+#             'viridis': 'Viridis',
+#             'plasma': 'Plasma'
+#         }
+#         color_sequence = color_map.get(color_scale, 'Blues')
+#         
+#         # Processa sempre, mas mostra mensagem se não for página de produtos
+#         vendas_df = load_vendas_data()
+#         
+#         if vendas_df.empty:
+#             print("❌ Dados de vendas vazios")
+#             fig_empty = go.Figure().add_annotation(
+#                 text="Sem dados disponíveis", 
+#                 xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+#             )
+#             return fig_empty, fig_empty
+#         
+#         # Aplica filtros usando a função centralizada
+#         df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
+#         
+#         # === LÓGICA INTELIGENTE DE HIERARQUIA ===
         # Determina qual nível de hierarquia usar baseado no filtro
         hierarchy_level, product_column = determine_hierarchy_level(df_filtrado, filtro_hierarquia)
         print(f"   🎯 Nível de hierarquia determinado: {hierarchy_level}, coluna: {product_column}")
@@ -2607,8 +2608,8 @@ def create_inactivity_analysis_content(analytics, df_vendas_filtrado=None):
                 html.H5("⚠️ Critérios de Classificação", className="mb-3"),
                 html.Ul([
                     html.Li([html.Strong("Ativo (≤90 dias): "), "Cliente com compras recentes, comportamento normal"]),
-                    html.Li([html.Strong("Atenção (91-365 dias): "), "Cliente pode estar se afastando, requer acompanhamento"]),
-                    html.Li([html.Strong("Crítico (>365 dias): "), "Cliente inativo, risco de perda, ação urgente necessária"])
+                    html.Li([html.Strong("Atenção (366-730 dias): "), "Cliente pode estar se afastando, requer acompanhamento"]),
+                    html.Li([html.Strong("Crítico (>730 dias): "), "Cliente inativo, risco de perda, ação urgente necessária"])
                 ], className="mb-2"),
                 html.P([
                     html.I(className="fas fa-exclamation-triangle me-2"),

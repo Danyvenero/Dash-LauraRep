@@ -503,88 +503,164 @@ def get_latest_dataset() -> Optional[Dict]:
         }
     return None
 
-from .cache_manager import cached_dataframe
+from .cache_manager import cache_manager
 
-@cached_dataframe(ttl_seconds=1800)  # Cache por 30 minutos (otimizado)
-def load_vendas_data(dataset_id: Optional[int] = None) -> pd.DataFrame:
-    """Carrega dados de vendas do banco com cache otimizado"""
+def load_vendas_data(dataset_id: Optional[int] = None, limit: Optional[int] = None, use_cache: bool = True) -> pd.DataFrame:
+    """Carrega dados de vendas do banco com otimizações para performance"""
+    
+    # Verifica cache apenas se solicitado
+    if use_cache:
+        cache_key = f"vendas_{dataset_id}_{limit}"
+        cached_result = cache_manager.get(cache_key)
+        if cached_result is not None:
+            print(f"� Cache HIT para load_vendas_data")
+            return cached_result
+    
     start_time = time.time()
-    print(f"💾 Cache MISS para load_vendas_data - executando...")
+    print(f"💾 Carregando dados de vendas...")
     
     conn = get_connection()
     
     try:
         if dataset_id:
             query = "SELECT * FROM vendas WHERE dataset_id = ?"
-            df = pd.read_sql_query(query, conn, params=(dataset_id,))
+            params = (dataset_id,)
         else:
-            # Carrega TODOS os dados de vendas (de todos os datasets) - OTIMIZADO
-            # Usa query mais eficiente com índices
+            # Query otimizada para carregamento inicial
             query = """
             SELECT * FROM vendas 
             ORDER BY dataset_id DESC, id ASC
             """
-            df = pd.read_sql_query(query, conn)
+            params = None
         
-        # Otimização: processa conversões em lote
+        # Adiciona LIMIT se especificado (útil para carregamento inicial)
+        if limit:
+            query += f" LIMIT {limit}"
+        
+        df = pd.read_sql_query(query, conn, params=params)
+        
+        # Otimização: processa conversões apenas se não vazio
         if not df.empty:
-            # Converte colunas de data de forma mais eficiente
+            # Converte colunas de data de forma eficiente
             date_columns = ['data', 'data_faturamento']
             for col in date_columns:
                 if col in df.columns:
                     df[col] = pd.to_datetime(df[col], errors='coerce', cache=True)
             
-            # Aplica padronizações antes de retornar os dados
+            # Aplica padronizações sempre (independente de limit)
             df = apply_vendas_standardization(df)
         
         end_time = time.time()
         print(f"⏱️ load_vendas_data executado em {end_time - start_time:.2f}s")
         print(f"📊 Dados carregados: {len(df)} registros de vendas")
         
+        # Cacheia apenas se não for carregamento limitado
+        if use_cache and not limit:
+            cache_key = f"vendas_{dataset_id}_{limit}"
+            cache_manager.set(cache_key, df)
+        
         return df
         
     finally:
         conn.close()
 
-@cached_dataframe(ttl_seconds=300)  # Cache por 5 minutos
-def load_cotacoes_data(dataset_id: Optional[int] = None) -> pd.DataFrame:
-    """Carrega dados de cotações do banco com cache"""
+def load_cotacoes_data(dataset_id: Optional[int] = None, limit: Optional[int] = None, use_cache: bool = True) -> pd.DataFrame:
+    """Carrega dados de cotações do banco com otimizações para performance"""
+    
+    # Verifica cache apenas se solicitado
+    if use_cache:
+        cache_key = f"cotacoes_{dataset_id}_{limit}"
+        cached_result = cache_manager.get(cache_key)
+        if cached_result is not None:
+            print(f"🚀 Cache HIT para load_cotacoes_data")
+            return cached_result
+    
+    start_time = time.time()
+    print(f"💾 Carregando dados de cotações...")
+    
     conn = get_connection()
     
-    if dataset_id:
-        query = "SELECT * FROM cotacoes WHERE dataset_id = ?"
-        df = pd.read_sql_query(query, conn, params=(dataset_id,))
-    else:
-        # Carrega TODOS os dados de cotações (de todos os datasets)
-        query = "SELECT * FROM cotacoes ORDER BY dataset_id DESC, id ASC"
-        df = pd.read_sql_query(query, conn)
-    
-    conn.close()
-    
-    # Converte coluna de data
-    if not df.empty and 'data' in df.columns:
-        df['data'] = pd.to_datetime(df['data'], errors='coerce')
-    
-    # Aplica padronizações antes de retornar os dados
-    if not df.empty:
-        df = apply_cotacoes_standardization(df)
-    
-    return df
+    try:
+        if dataset_id:
+            query = "SELECT * FROM cotacoes WHERE dataset_id = ?"
+            params = (dataset_id,)
+        else:
+            query = "SELECT * FROM cotacoes ORDER BY dataset_id DESC, id ASC"
+            params = None
+        
+        # Adiciona LIMIT se especificado
+        if limit:
+            query += f" LIMIT {limit}"
+        
+        df = pd.read_sql_query(query, conn, params=params)
+        
+        # Processa apenas se não vazio
+        if not df.empty:
+            # Converte coluna de data
+            if 'data' in df.columns:
+                df['data'] = pd.to_datetime(df['data'], errors='coerce')
+            
+            # Aplica padronizações se não for carregamento limitado
+            if not limit:
+                df = apply_cotacoes_standardization(df)
+        
+        end_time = time.time()
+        print(f"⏱️ load_cotacoes_data executado em {end_time - start_time:.2f}s")
+        print(f"📊 Dados carregados: {len(df)} registros de cotações")
+        
+        # Cacheia apenas se não for carregamento limitado
+        if use_cache and not limit:
+            cache_key = f"cotacoes_{dataset_id}_{limit}"
+            cache_manager.set(cache_key, df)
+        
+        return df
+        
+    finally:
+        conn.close()
 
-def load_produtos_cotados_data(dataset_id: Optional[int] = None) -> pd.DataFrame:
-    """Carrega dados de produtos cotados do banco"""
+def load_produtos_cotados_data(dataset_id: Optional[int] = None, limit: Optional[int] = None, use_cache: bool = True) -> pd.DataFrame:
+    """Carrega dados de produtos cotados do banco com otimizações para performance"""
+    
+    # Verifica cache apenas se solicitado
+    if use_cache:
+        cache_key = f"produtos_cotados_{dataset_id}_{limit}"
+        cached_result = cache_manager.get(cache_key)
+        if cached_result is not None:
+            print(f"🚀 Cache HIT para load_produtos_cotados_data")
+            return cached_result
+    
+    start_time = time.time()
+    print(f"💾 Carregando dados de produtos cotados...")
+    
     conn = get_connection()
     
-    if dataset_id:
-        query = "SELECT * FROM produtos_cotados WHERE dataset_id = ?"
-        df = pd.read_sql_query(query, conn, params=(dataset_id,))
-    else:
-        # Carrega TODOS os dados de produtos cotados (de todos os datasets)
-        query = "SELECT * FROM produtos_cotados ORDER BY dataset_id DESC, id ASC"
-        df = pd.read_sql_query(query, conn)
-    
-    conn.close()
-    return df
+    try:
+        if dataset_id:
+            query = "SELECT * FROM produtos_cotados WHERE dataset_id = ?"
+            params = (dataset_id,)
+        else:
+            query = "SELECT * FROM produtos_cotados ORDER BY dataset_id DESC, id ASC"
+            params = None
+        
+        # Adiciona LIMIT se especificado
+        if limit:
+            query += f" LIMIT {limit}"
+        
+        df = pd.read_sql_query(query, conn, params=params)
+        
+        end_time = time.time()
+        print(f"⏱️ load_produtos_cotados_data executado em {end_time - start_time:.2f}s")
+        print(f"📊 Dados carregados: {len(df)} registros de produtos cotados")
+        
+        # Cacheia apenas se não for carregamento limitado
+        if use_cache and not limit:
+            cache_key = f"produtos_cotados_{dataset_id}_{limit}"
+            cache_manager.set(cache_key, df)
+        
+        return df
+        
+    finally:
+        conn.close()
 
 def get_setting(key: str, default=None):
     """Recupera uma configuração do banco"""

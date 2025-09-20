@@ -51,16 +51,32 @@ body {
     cursor: pointer;
     transition: background-color 0.3s;
     border-left: 4px solid transparent;
+    color: white !important;
+    text-decoration: none !important;
+    display: block;
 }
 
 .sidebar-menu-item:hover {
     background-color: var(--weg-light-blue);
     border-left-color: white;
+    color: white !important;
+    text-decoration: none !important;
 }
 
 .sidebar-menu-item.active {
     background-color: var(--weg-light-blue);
     border-left-color: white;
+    color: white !important;
+}
+
+/* Garante que links na sidebar sejam sempre brancos */
+.sidebar a,
+.sidebar a:hover,
+.sidebar a:visited,
+.sidebar a:active,
+.sidebar a:focus {
+    color: white !important;
+    text-decoration: none !important;
 }
 
 /* Conteúdo principal */
@@ -318,9 +334,7 @@ div[class*="dropdown"] div {
 }
 
 /* FORÇA BRUTAL - CSS Universal para TODOS os elementos de dropdown */
-* {
-    /* Aplica a todos os elementos dentro de dropdowns */
-}
+/* Aplica a todos os elementos dentro de dropdowns */
 
 /* Seletores universais super específicos */
 .Select-menu * {
@@ -491,6 +505,32 @@ div[class*="dropdown"] div {
 .rc-slider-handle.rc-slider-handle-dragging {
     border-color: var(--weg-light-blue) !important;
     box-shadow: 0 0 0 5px rgba(0, 51, 102, 0.2) !important;
+}
+
+/* Estilos especiais para rangeslider na sidebar */
+.sidebar .rc-slider-mark {
+    top: 25px !important;
+}
+
+.sidebar .rc-slider-mark-text {
+    color: white !important;
+    font-size: 10px !important;
+    font-weight: 500 !important;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.3) !important;
+    transform: rotate(-45deg) !important;
+    transform-origin: center !important;
+    white-space: nowrap !important;
+    margin-top: 8px !important;
+}
+
+.sidebar .rc-slider-mark-text-active {
+    color: #fff !important;
+    font-weight: 600 !important;
+}
+
+/* Melhor espaçamento para os marks do rangeslider na sidebar */
+.sidebar .rc-slider {
+    margin: 30px 0 40px 0 !important;
 }
 
 /* Botões */

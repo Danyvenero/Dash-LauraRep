@@ -160,8 +160,8 @@ def apply_filters(df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia,
             min_dias, max_dias = filtro_dias_sem_compra
             print(f"   ✅ Aplicando filtro dias sem compra: {min_dias} a {max_dias} dias")
             
-            # Se o range é o padrão [0, 365], não aplica filtro
-            if min_dias == 0 and max_dias == 365:
+            # Se o range é o padrão [0, 1095], não aplica filtro
+            if min_dias == 0 and max_dias == 1095:
                 print(f"   ⚠️ Range padrão [0, 365] - não aplicando filtro")
             elif date_column and 'cod_cliente' in df_filtrado.columns:
                 from datetime import datetime, timedelta
@@ -521,7 +521,7 @@ def update_kpis_unidades_negocio(pathname, filtro_ano, filtro_mes, filtro_client
                 kpi_card = dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
-                            html.H6(f"R$ {valor:,.0f}", className="card-title text-primary"),
+                            html.H6(f"R$ {valor:,.0f}", className="card-title text-secondary"),
                             html.P(str(un), className="card-text small")
                         ])
                     ], className="text-center h-100 mb-2")

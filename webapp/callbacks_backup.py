@@ -160,8 +160,8 @@ def apply_filters(df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia,
             min_dias, max_dias = filtro_dias_sem_compra
             print(f"   ✅ Aplicando filtro dias sem compra: {min_dias} a {max_dias} dias")
             
-            # Se o range é o padrão [0, 365], não aplica filtro
-            if min_dias == 0 and max_dias == 365:
+            # Se o range é o padrão [0, 1095], não aplica filtro
+            if min_dias == 0 and max_dias == 1095:
                 print(f"   ⚠️ Range padrão [0, 365] - não aplicando filtro")
             elif date_column and 'cod_cliente' in df_filtrado.columns:
                 from datetime import datetime, timedelta
@@ -521,7 +521,7 @@ def update_kpis_unidades_negocio(pathname, filtro_ano, filtro_mes, filtro_client
                 kpi_card = dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
-                            html.H6(f"R$ {valor:,.0f}", className="card-title text-primary"),
+                            html.H6(f"R$ {valor:,.0f}", className="card-title text-secondary"),
                             html.P(str(un), className="card-text small")
                         ])
                     ], className="text-center h-100 mb-2")
@@ -1437,245 +1437,247 @@ def update_clients_table_page_size(page_size):
     print(f"🔄 UPDATE_CLIENTS_TABLE_PAGE_SIZE: {page_size}")
     return page_size or 25
 
+# CALLBACK DESABILITADO - Duplicado com callbacks.py
 # Callback para gráficos de produtos - REATIVO A FILTROS
-@app.callback(
-    [Output('grafico-bolhas-produtos', 'figure'),
-     Output('grafico-pareto-produtos', 'figure')],
-    [Input('url', 'pathname'),
-     Input('global-filtro-ano', 'value'),
-     Input('global-filtro-mes', 'value'),
-     Input('global-filtro-cliente', 'value'),
-     Input('global-filtro-hierarquia', 'value'),
-     Input('global-filtro-canal', 'value'),
-     Input('global-filtro-top-clientes', 'value'),
-     Input('global-filtro-dias-sem-compra', 'value'),
-     Input('filter-top-produtos', 'value'),
-     Input('filter-color-scale', 'value')],
-    prevent_initial_call=False
-)
-def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, top_produtos, color_scale):
-    """Atualiza gráficos da página de produtos"""
-    print(f"🔄 UPDATE_PRODUCTS_CHARTS executado - pathname: {pathname}")
-    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
-    print(f"   Hierarquia={filtro_hierarquia}, Top Produtos={top_produtos}, Paleta={color_scale}")
-    
-    try:
-        import plotly.graph_objects as go
-        import plotly.express as px
-        
-        # Define paleta de cores baseada na seleção
-        color_map = {
-            'weg_blue': 'Blues',
-            'performance': 'RdYlGn', 
-            'viridis': 'Viridis',
-            'plasma': 'Plasma'
-        }
-        color_sequence = color_map.get(color_scale, 'Blues')
-        
-        # Processa sempre, mas mostra mensagem se não for página de produtos
-        vendas_df = load_vendas_data()
-        
-        if vendas_df.empty:
-            print("❌ Dados de vendas vazios")
-            fig_empty = go.Figure().add_annotation(
-                text="Sem dados disponíveis", 
-                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-            )
-            return fig_empty, fig_empty
-        
-        # Aplica filtros usando a função centralizada
-        df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
-        
-        # === LÓGICA INTELIGENTE DE HIERARQUIA ===
-        # Determina qual nível de hierarquia usar baseado no filtro
-        hierarchy_level, product_column = determine_hierarchy_level(df_filtrado, filtro_hierarquia)
-        print(f"   🎯 Nível de hierarquia determinado: {hierarchy_level}, coluna: {product_column}")
-        
-        # Define número de top produtos (padrão 20 se não especificado)
-        top_n_produtos = top_produtos if top_produtos and top_produtos > 0 else 20
-        print(f"   📊 Top N produtos: {top_n_produtos}")
-        
-        if df_filtrado.empty:
-            print("❌ Dados filtrados vazios")
-            fig_empty = go.Figure().add_annotation(
-                text="Nenhum dado encontrado com os filtros aplicados", 
-                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-            )
-            return fig_empty, fig_empty
-        
-        # === GRÁFICO DE BOLHAS (Matriz Clientes x Produtos) ===
-        fig_bolhas = go.Figure()
-        
-        if 'cliente' in df_filtrado.columns and product_column in df_filtrado.columns:
-            # Determina qual coluna de quantidade usar
-            qty_col = None
-            for col in ['qty_vendida', 'qtde', 'quantidade', 'qte']:
-                if col in df_filtrado.columns:
-                    qty_col = col
-                    break
-            
-            # Agrupa dados por cliente e produto usando a coluna inteligente determinada
-            agg_dict = {'vlr_rol': 'sum'}
-            if qty_col:
-                agg_dict[qty_col] = 'sum'
-            
-            matriz_data = df_filtrado.groupby(['cliente', product_column]).agg(agg_dict).reset_index()
-            
-            if len(matriz_data) > 0:
-                # Para clientes: se não há filtro top_clientes aplicado, pega top N baseado no faturamento
-                # Se já foi aplicado o filtro no apply_filters, usa todos os clientes resultantes
-                if filtro_top_clientes and filtro_top_clientes > 0:
-                    # Filtro já foi aplicado no apply_filters, usa todos os clientes
-                    clientes_matriz = matriz_data['cliente'].unique()
-                    print(f"   📊 Clientes na matriz (filtro já aplicado): {len(clientes_matriz)}")
-                else:
-                    # Não há filtro, pega top 10 clientes por faturamento
-                    top_clientes_n = 10
-                    top_clientes = matriz_data.groupby('cliente')['vlr_rol'].sum().nlargest(top_clientes_n).index
-                    clientes_matriz = top_clientes
-                    print(f"   📊 Top {top_clientes_n} clientes selecionados para matriz")
-                
-                # Para produtos: sempre pega top N produtos baseado no filtro
-                top_produtos_matriz = matriz_data.groupby(product_column)['vlr_rol'].sum().nlargest(top_n_produtos).index
-                print(f"   📊 Top {top_n_produtos} produtos selecionados para matriz")
-                
-                # Filtra a matriz final
-                matriz_filtered = matriz_data[
-                    (matriz_data['cliente'].isin(clientes_matriz)) & 
-                    (matriz_data[product_column].isin(top_produtos_matriz))
-                ]
-                
-                if not matriz_filtered.empty:
-                    # Usa quantidade se disponível, senão usa faturamento para cor
-                    color_col = qty_col if qty_col and qty_col in matriz_filtered.columns else 'vlr_rol'
-                    
-                    # CORREÇÃO: Valores negativos não são permitidos no size do scatter
-                    # Converte valores negativos para positivos (valor absoluto)
-                    size_col = 'vlr_rol_abs'
-                    matriz_filtered[size_col] = matriz_filtered['vlr_rol'].abs()
-                    
-                    # Garante que não há valores zero que podem causar problemas
-                    matriz_filtered[size_col] = matriz_filtered[size_col].replace(0, 1)
-                    
-                    title_suffix = f"(Nível {hierarchy_level})"
-                    if hierarchy_level == 4:
-                        title_suffix = "(Produtos Individuais)"
-                    
-                    fig_bolhas = px.scatter(
-                        matriz_filtered, 
-                        x='cliente', 
-                        y=product_column,
-                        size=size_col,  # Usa coluna com valores absolutos
-                        color=color_col,
-                        color_continuous_scale=color_sequence,  # Usa paleta selecionada
-                        hover_data=['vlr_rol'] + ([qty_col] if qty_col and qty_col in matriz_filtered.columns else []),
-                        title=f'Matriz Clientes × Produtos {title_suffix}'
-                    )
-                    fig_bolhas.update_layout(
-                        height=400,
-                        xaxis_title="Clientes",
-                        yaxis_title="Produtos", 
-                    )
-                else:
-                    fig_bolhas.add_annotation(
-                        text="Sem dados para matriz", 
-                        xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-                    )
-            else:
-                fig_bolhas.add_annotation(
-                    text="Sem dados para processar", 
-                    xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-                )
-        else:
-            missing_cols = []
-            if 'cliente' not in df_filtrado.columns:
-                missing_cols.append('cliente')
-            if product_column not in df_filtrado.columns:
-                missing_cols.append(product_column)
-            fig_bolhas.add_annotation(
-                text=f"Colunas ausentes: {', '.join(missing_cols)}", 
-                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-            )
-        
-        # === GRÁFICO DE PARETO (Produtos por Faturamento) ===
-        fig_pareto = go.Figure()
-        
-        if product_column in df_filtrado.columns and 'vlr_rol' in df_filtrado.columns:
-            # Cria dados para Pareto usando a coluna de produto inteligente
-            pareto_data = df_filtrado.groupby(product_column)['vlr_rol'].sum().sort_values(ascending=False).reset_index()
-            
-            if len(pareto_data) > 0:
-                pareto_data['faturamento_acumulado'] = pareto_data['vlr_rol'].cumsum()
-                pareto_data['percentual_acumulado'] = (pareto_data['faturamento_acumulado'] / pareto_data['vlr_rol'].sum()) * 100
-                
-                # Usa o top_n_produtos do filtro
-                pareto_data = pareto_data.head(top_n_produtos)
-                
-                # Cria o gráfico de Pareto
-                fig_pareto = go.Figure()
-                
-                # Barras de faturamento
-                fig_pareto.add_trace(go.Bar(
-                    x=pareto_data[product_column],
-                    y=pareto_data['vlr_rol'],
-                    name='Faturamento',
-                    yaxis='y',
-                    marker_color='steelblue'
-                ))
-                
-                # Linha de percentual acumulado
-                fig_pareto.add_trace(go.Scatter(
-                    x=pareto_data[product_column],
-                    y=pareto_data['percentual_acumulado'],
-                    mode='lines+markers',
-                    name='% Acumulado',
-                    yaxis='y2',
-                    line=dict(color='red', width=2),
-                    marker=dict(size=6)
-                ))
-                
-                # Layout com dois eixos Y
-                title_suffix = f"(Nível {hierarchy_level})"
-                if hierarchy_level == 4:
-                    title_suffix = "(Produtos Individuais)"
-                
-                fig_pareto.update_layout(
-                    title=f'Análise de Pareto - Produtos {title_suffix} (Top {top_n_produtos})',
-                    xaxis=dict(title='Produtos', tickangle=45),
-                    yaxis=dict(title='Faturamento (R$)', side='left'),
-                    yaxis2=dict(title='% Acumulado', side='right', overlaying='y', range=[0, 100]),
-                    height=400,
-                    legend=dict(x=0.7, y=0.9)
-                )
-            else:
-                fig_pareto.add_annotation(
-                    text="Sem produtos para análise", 
-                    xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-                )
-        else:
-            missing_cols = []
-            if product_column not in df_filtrado.columns:
-                missing_cols.append(product_column)
-            if 'vlr_rol' not in df_filtrado.columns:
-                missing_cols.append('vlr_rol')
-            fig_pareto.add_annotation(
-                text=f"Colunas ausentes: {', '.join(missing_cols)}", 
-                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-            )
-        
-        print(f"✅ Gráficos de produtos criados - {len(df_filtrado)} registros processados")
-        return fig_bolhas, fig_pareto
-        
-    except Exception as e:
-        print(f"❌ Erro em update_products_charts: {e}")
-        import traceback
-        traceback.print_exc()
-        import plotly.graph_objects as go
-        fig_error = go.Figure().add_annotation(
-            text=f"Erro: {str(e)}", 
-            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-        )
-        return fig_error, fig_error
+# @app.callback(
+#     [Output('grafico-bolhas-produtos', 'figure'),
+#      Output('grafico-pareto-produtos', 'figure')],
+#     [Input('url', 'pathname'),
+#      Input('global-filtro-ano', 'value'),
+#      Input('global-filtro-mes', 'value'),
+#      Input('global-filtro-cliente', 'value'),
+#      Input('global-filtro-hierarquia', 'value'),
+#      Input('global-filtro-canal', 'value'),
+#      Input('global-filtro-top-clientes', 'value'),
+#      Input('global-filtro-dias-sem-compra', 'value'),
+#      Input('filter-top-produtos', 'value'),
+#      Input('filter-color-scale', 'value')],
+#     prevent_initial_call=False
+# )
+# def update_products_charts(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, top_produtos, color_scale):
+#     """Atualiza gráficos da página de produtos"""
+#     print(f"🔄 UPDATE_PRODUCTS_CHARTS executado - pathname: {pathname}")
+#     print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
+#     print(f"   Hierarquia={filtro_hierarquia}, Top Produtos={top_produtos}, Paleta={color_scale}")
+#     
+#     try:
+#         import plotly.graph_objects as go
+#         import plotly.express as px
+#         
+#         # Define paleta de cores baseada na seleção
+#         color_map = {
+#             'weg_blue': 'Blues',
+#             'performance': 'RdYlGn', 
+#             'viridis': 'Viridis',
+#             'plasma': 'Plasma'
+#         }
+#         color_sequence = color_map.get(color_scale, 'Blues')
+#         
+#         # Processa sempre, mas mostra mensagem se não for página de produtos
+#         vendas_df = load_vendas_data()
+#         
+#         if vendas_df.empty:
+#             print("❌ Dados de vendas vazios")
+#             fig_empty = go.Figure().add_annotation(
+#                 text="Sem dados disponíveis", 
+#                 xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+#             )
+#             return fig_empty, fig_empty
+#         
+#         # Aplica filtros usando a função centralizada
+#         df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
+#         
+#         # === LÓGICA INTELIGENTE DE HIERARQUIA ===
+#         # Determina qual nível de hierarquia usar baseado no filtro
+#         hierarchy_level, product_column = determine_hierarchy_level(df_filtrado, filtro_hierarquia)
+#         print(f"   🎯 Nível de hierarquia determinado: {hierarchy_level}, coluna: {product_column}")
+#         
+#         # Define número de top produtos (padrão 20 se não especificado)
+#         top_n_produtos = top_produtos if top_produtos and top_produtos > 0 else 20
+#         print(f"   📊 Top N produtos: {top_n_produtos}")
+#         
+#         if df_filtrado.empty:
+#             print("❌ Dados filtrados vazios")
+#             fig_empty = go.Figure().add_annotation(
+#                 text="Nenhum dado encontrado com os filtros aplicados", 
+#                 xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+#             )
+#             return fig_empty, fig_empty
+#         
+#         # === GRÁFICO DE BOLHAS (Matriz Clientes x Produtos) ===
+#         fig_bolhas = go.Figure()
+#         
+#         if 'cliente' in df_filtrado.columns and product_column in df_filtrado.columns:
+#         if 'cliente' in df_filtrado.columns and product_column in df_filtrado.columns:
+#             # Determina qual coluna de quantidade usar
+#             qty_col = None
+#             for col in ['qty_vendida', 'qtde', 'quantidade', 'qte']:
+#                 if col in df_filtrado.columns:
+#                     qty_col = col
+#                     break
+#             
+#             # Agrupa dados por cliente e produto usando a coluna inteligente determinada
+#             agg_dict = {'vlr_rol': 'sum'}
+#             if qty_col:
+#                 agg_dict[qty_col] = 'sum'
+#             
+#             matriz_data = df_filtrado.groupby(['cliente', product_column]).agg(agg_dict).reset_index()
+#             
+#             if len(matriz_data) > 0:
+#                 # Para clientes: se não há filtro top_clientes aplicado, pega top N baseado no faturamento
+#                 # Se já foi aplicado o filtro no apply_filters, usa todos os clientes resultantes
+#                 if filtro_top_clientes and filtro_top_clientes > 0:
+#                     # Filtro já foi aplicado no apply_filters, usa todos os clientes
+#                     clientes_matriz = matriz_data['cliente'].unique()
+#                     print(f"   📊 Clientes na matriz (filtro já aplicado): {len(clientes_matriz)}")
+#                 else:
+#                     # Não há filtro, pega top 10 clientes por faturamento
+#                     top_clientes_n = 10
+#                     top_clientes = matriz_data.groupby('cliente')['vlr_rol'].sum().nlargest(top_clientes_n).index
+#                     clientes_matriz = top_clientes
+#                     print(f"   📊 Top {top_clientes_n} clientes selecionados para matriz")
+#                 
+#                 # Para produtos: sempre pega top N produtos baseado no filtro
+#                 top_produtos_matriz = matriz_data.groupby(product_column)['vlr_rol'].sum().nlargest(top_n_produtos).index
+#                 print(f"   📊 Top {top_n_produtos} produtos selecionados para matriz")
+#                 
+#                 # Filtra a matriz final
+#                 matriz_filtered = matriz_data[
+#                     (matriz_data['cliente'].isin(clientes_matriz)) & 
+#                     (matriz_data[product_column].isin(top_produtos_matriz))
+#                 ]
+#                 
+#                 if not matriz_filtered.empty:
+#                     # Usa quantidade se disponível, senão usa faturamento para cor
+#                     color_col = qty_col if qty_col and qty_col in matriz_filtered.columns else 'vlr_rol'
+#                     
+#                     # CORREÇÃO: Valores negativos não são permitidos no size do scatter
+#                     # Converte valores negativos para positivos (valor absoluto)
+#                     size_col = 'vlr_rol_abs'
+#                     matriz_filtered[size_col] = matriz_filtered['vlr_rol'].abs()
+#                     
+#                     # Garante que não há valores zero que podem causar problemas
+#                     matriz_filtered[size_col] = matriz_filtered[size_col].replace(0, 1)
+#                     
+#                     title_suffix = f"(Nível {hierarchy_level})"
+#                     if hierarchy_level == 4:
+#                         title_suffix = "(Produtos Individuais)"
+#                     
+#                     fig_bolhas = px.scatter(
+#                         matriz_filtered, 
+#                         x='cliente', 
+#                         y=product_column,
+#                         size=size_col,  # Usa coluna com valores absolutos
+#                         color=color_col,
+#                         color_continuous_scale=color_sequence,  # Usa paleta selecionada
+#                         hover_data=['vlr_rol'] + ([qty_col] if qty_col and qty_col in matriz_filtered.columns else []),
+#                         title=f'Matriz Clientes × Produtos {title_suffix}'
+#                     )
+#                     fig_bolhas.update_layout(
+#                         height=400,
+#                         xaxis_title="Clientes",
+#                         yaxis_title="Produtos", 
+#                     )
+#                 else:
+#                     fig_bolhas.add_annotation(
+#                         text="Sem dados para matriz", 
+#                         xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+#                     )
+#             else:
+#                 fig_bolhas.add_annotation(
+#                     text="Sem dados para processar", 
+#                     xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+#                 )
+#         else:
+#             missing_cols = []
+#             if 'cliente' not in df_filtrado.columns:
+#                 missing_cols.append('cliente')
+#             if product_column not in df_filtrado.columns:
+#                 missing_cols.append(product_column)
+#             fig_bolhas.add_annotation(
+#                 text=f"Colunas ausentes: {', '.join(missing_cols)}", 
+#                 xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+#             )
+#         
+#         # === GRÁFICO DE PARETO (Produtos por Faturamento) ===
+#         fig_pareto = go.Figure()
+#         
+#         if product_column in df_filtrado.columns and 'vlr_rol' in df_filtrado.columns:
+#             # Cria dados para Pareto usando a coluna de produto inteligente
+#             pareto_data = df_filtrado.groupby(product_column)['vlr_rol'].sum().sort_values(ascending=False).reset_index()
+#             
+#             if len(pareto_data) > 0:
+#                 pareto_data['faturamento_acumulado'] = pareto_data['vlr_rol'].cumsum()
+#                 pareto_data['percentual_acumulado'] = (pareto_data['faturamento_acumulado'] / pareto_data['vlr_rol'].sum()) * 100
+#                 
+#                 # Usa o top_n_produtos do filtro
+#                 pareto_data = pareto_data.head(top_n_produtos)
+#                 
+#                 # Cria o gráfico de Pareto
+#                 fig_pareto = go.Figure()
+#                 
+#                 # Barras de faturamento
+#                 fig_pareto.add_trace(go.Bar(
+#                     x=pareto_data[product_column],
+#                     y=pareto_data['vlr_rol'],
+#                     name='Faturamento',
+#                     yaxis='y',
+#                     marker_color='steelblue'
+#                 ))
+#                 
+#                 # Linha de percentual acumulado
+#                 fig_pareto.add_trace(go.Scatter(
+#                     x=pareto_data[product_column],
+#                     y=pareto_data['percentual_acumulado'],
+#                     mode='lines+markers',
+#                     name='% Acumulado',
+#                     yaxis='y2',
+#                     line=dict(color='red', width=2),
+#                     marker=dict(size=6)
+#                 ))
+#                 
+#                 # Layout com dois eixos Y
+#                 title_suffix = f"(Nível {hierarchy_level})"
+#                 if hierarchy_level == 4:
+#                     title_suffix = "(Produtos Individuais)"
+#                 
+#                 fig_pareto.update_layout(
+#                     title=f'Análise de Pareto - Produtos {title_suffix} (Top {top_n_produtos})',
+#                     xaxis=dict(title='Produtos', tickangle=45),
+#                     yaxis=dict(title='Faturamento (R$)', side='left'),
+#                     yaxis2=dict(title='% Acumulado', side='right', overlaying='y', range=[0, 100]),
+#                     height=400,
+#                     legend=dict(x=0.7, y=0.9)
+#                 )
+#             else:
+#                 fig_pareto.add_annotation(
+#                     text="Sem produtos para análise", 
+#                     xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+#                 )
+#         else:
+#             missing_cols = []
+#             if product_column not in df_filtrado.columns:
+#                 missing_cols.append(product_column)
+#             if 'vlr_rol' not in df_filtrado.columns:
+#                 missing_cols.append('vlr_rol')
+#             fig_pareto.add_annotation(
+#                 text=f"Colunas ausentes: {', '.join(missing_cols)}", 
+#                 xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+#             )
+#         
+#         print(f"✅ Gráficos de produtos criados - {len(df_filtrado)} registros processados")
+#         return fig_bolhas, fig_pareto
+#         
+#     except Exception as e:
+#         print(f"❌ Erro em update_products_charts: {e}")
+#         import traceback
+#         traceback.print_exc()
+#         import plotly.graph_objects as go
+#         fig_error = go.Figure().add_annotation(
+#             text=f"Erro: {str(e)}", 
+#             xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+#         )
+#         return fig_error, fig_error
 
 # =======================================
 # CALLBACKS DUPLICADOS REMOVIDOS
@@ -2607,8 +2609,8 @@ def create_inactivity_analysis_content(analytics, df_vendas_filtrado=None):
                 html.H5("⚠️ Critérios de Classificação", className="mb-3"),
                 html.Ul([
                     html.Li([html.Strong("Ativo (≤90 dias): "), "Cliente com compras recentes, comportamento normal"]),
-                    html.Li([html.Strong("Atenção (91-365 dias): "), "Cliente pode estar se afastando, requer acompanhamento"]),
-                    html.Li([html.Strong("Crítico (>365 dias): "), "Cliente inativo, risco de perda, ação urgente necessária"])
+                    html.Li([html.Strong("Atenção (366-730 dias): "), "Cliente pode estar se afastando, requer acompanhamento"]),
+                    html.Li([html.Strong("Crítico (>730 dias): "), "Cliente inativo, risco de perda, ação urgente necessária"])
                 ], className="mb-2"),
                 html.P([
                     html.I(className="fas fa-exclamation-triangle me-2"),

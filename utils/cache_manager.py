@@ -90,7 +90,7 @@ class CacheManager:
                 'hit_rate': total_hits / max(1, len(self._cache))
             }
 
-# Instância global do cache
+# Instância global do cache - inicialização leve
 cache_manager = CacheManager(max_size=50, ttl_seconds=180)  # 3 minutos TTL
 
 def cached_dataframe(ttl_seconds: int = 180):
@@ -140,14 +140,30 @@ def cached_result(ttl_seconds: int = 180):
         return wrapper
     return decorator
 
-# Função para pré-carregar dados mais utilizados
-def preload_common_data():
-    """Pré-carrega dados comumente utilizados"""
+# Função para pré-carregar dados mais utilizados (DESABILITADA por padrão)
+def preload_common_data(enable_preload=False):
+    """Pré-carrega dados comumente utilizados (opcional)"""
+    if not enable_preload:
+        print("📋 Preload de dados desabilitado para startup mais rápido")
+        return
+        
     from . import load_vendas_data, load_cotacoes_data
     
     print("🔄 Pré-carregando dados no cache...")
     try:
-        # Carrega dados de vendas (mais utilizados)
+        # Carrega dados de vendas (mais utilizados) com limite para não travar
+        print("  📈 Carregando amostra de vendas...")
+        load_vendas_data(limit=1000, use_cache=True)
+        
+        print("  📋 Carregando amostra de cotações...")
+        load_cotacoes_data(limit=1000, use_cache=True)
+        
+        print("✅ Preload concluído")
+    except Exception as e:
+        print(f"⚠️ Erro no preload: {e}")
+
+# NÃO executa preload na inicialização para melhorar startup
+# preload_common_data()  # Comentado para otimizar startup
         load_vendas_data()
         print("✅ Dados de vendas pré-carregados")
         

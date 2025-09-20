@@ -18,6 +18,9 @@ from utils import (
     AdvancedAnalytics,
     SENTINEL_ALL
 )
+
+# Import callbacks da página de sugestões - REMOVIDO para evitar duplicação
+# import webapp.purchase_suggestions_callbacks  # ❌ COMENTADO - usando versão simplificada
 from utils.cache_manager import cached_dataframe, cached_result, cache_manager
 from utils.ai_framework import ai_analytics, SimpleNLPMatcher, UserInteractionLogger
 
@@ -789,51 +792,28 @@ def display_page_content(pathname):
             return layout
         elif pathname == '/app/products':
             from webapp.layouts import create_products_layout
+            from utils.component_validator import safe_component_return
             try:
                 layout = create_products_layout()
                 
-                # CORREÇÃO ESPECÍFICA: Verificar se o layout de produtos é válido
-                if layout is None:
-                    print(f"❌ Layout de produtos retornado é None")
-                    return html.Div([
-                        dbc.Alert("Erro: Layout de produtos não encontrado", color="danger")
-                    ])
-                
-                # Validar se é um componente válido
-                if not hasattr(layout, 'children') and not isinstance(layout, (str, int, float, list)):
-                    print(f"❌ Layout de produtos não é um componente válido: {type(layout)}")
-                    return html.Div([
-                        dbc.Alert("Erro: Layout de produtos inválido", color="danger")
-                    ])
+                # CORREÇÃO ESPECÍFICA: Validação robusta do layout
+                validated_layout = safe_component_return(
+                    layout, 
+                    "Erro ao carregar página de produtos"
+                )
                 
                 print("✅ Layout de produtos validado com sucesso")
-                return layout
+                return validated_layout
                 
             except Exception as e:
                 print(f"❌ Erro ao criar layout de produtos: {e}")
                 import traceback
                 traceback.print_exc()
                 return html.Div([
-                    dbc.Alert(f"Erro ao carregar página de produtos: {str(e)}", color="danger")
-                ])
-            
-            # Verificar se o layout contém componentes válidos
-            try:
-                # Força uma validação do layout
-                import dash
-                if not isinstance(layout, (dash.html.Div, dash.dcc.Graph, dash.dash_table.DataTable, list)):
-                    print(f"❌ Layout de produtos tem tipo inválido: {type(layout)}")
-                    return html.Div([
-                        dbc.Alert("Erro: Layout de produtos tem formato inválido", color="danger")
-                    ])
-            except Exception as layout_error:
-                print(f"❌ Erro na validação do layout de produtos: {layout_error}")
-                return html.Div([
-                    dbc.Alert(f"Erro na validação do layout: {str(layout_error)}", color="danger")
+                    dbc.Alert(f"Erro ao carregar página de produtos: {str(e)}", color="danger"),
+                    html.P("Verifique os logs do servidor para mais detalhes.")
                 ])
                 
-            print("✅ Layout de produtos validado com sucesso")
-            return layout
         elif pathname == '/app/funnel':
             from webapp.layouts import create_funnel_layout
             layout = create_funnel_layout()
@@ -888,14 +868,18 @@ def update_filter_options(pathname):
             print("❌ Nenhum dado de vendas encontrado")
             return [], [], []
         
-        # Opções de clientes
+        # Opções de clientes (dados já estão deduplicados pela padronização)
         cliente_options = []
         if 'cod_cliente' in vendas_df.columns and 'cliente' in vendas_df.columns:
-            clientes_unique = vendas_df[['cod_cliente', 'cliente']].drop_duplicates()
+            # Agrupa por código para garantir cliente único por código
+            clientes_unique = (vendas_df[['cod_cliente', 'cliente']]
+                             .dropna()
+                             .groupby('cod_cliente')['cliente']
+                             .first()  # Pega o primeiro (já foi deduplicado)
+                             .reset_index())
             cliente_options = [
                 {'label': f"{row['cod_cliente']} -- {row['cliente']}", 'value': row['cod_cliente']}
                 for _, row in clientes_unique.iterrows()
-                if not pd.isna(row['cod_cliente']) and not pd.isna(row['cliente'])
             ]
         print(f"✅ Clientes: {len(cliente_options)} opções")
         
@@ -2057,92 +2041,6 @@ def generate_ml_purchase_suggestions(analytics, df_vendas, df_cotacoes):
     except Exception as e:
         print(f"Erro em generate_ml_purchase_suggestions: {e}")
         return []
-
-# =======================================
-# CALLBACKS PARA CONTROLES DA TABELA ML
-# =======================================
-
-# Callback para selecionar todas as sugestões
-@app.callback(
-    Output('ml-suggestions-table', 'selected_rows'),
-    [Input('select-all-suggestions', 'n_clicks'),
-     Input('deselect-all-suggestions', 'n_clicks')],
-    [State('ml-suggestions-table', 'data')],
-    prevent_initial_call=True
-)
-@authenticated_callback
-def manage_table_selection(select_all_clicks, deselect_all_clicks, table_data):
-    """Gerencia seleção de todas/nenhuma linha da tabela ML"""
-    ctx = dash.callback_context
-    
-    if not ctx.triggered:
-        return []
-    
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
-    if trigger_id == 'select-all-suggestions':
-        # Seleciona todas as linhas
-        return list(range(len(table_data))) if table_data else []
-    elif trigger_id == 'deselect-all-suggestions':
-        # Deseleciona todas as linhas
-        return []
-    
-    return []
-
-# Callback para exportar sugestões selecionadas
-@app.callback(
-    Output('export-download-ml', 'data'),
-    [Input('export-selected-suggestions', 'n_clicks')],
-    [State('ml-suggestions-table', 'data'),
-     State('ml-suggestions-table', 'selected_rows')],
-    prevent_initial_call=True
-)
-@authenticated_callback
-def export_selected_suggestions(n_clicks, table_data, selected_rows):
-    """Exporta as sugestões ML selecionadas para CSV"""
-    if not n_clicks or not table_data or not selected_rows:
-        return dash.no_update
-    
-    try:
-        import pandas as pd
-        from datetime import datetime
-        
-        # Filtra apenas as linhas selecionadas
-        selected_data = [table_data[i] for i in selected_rows]
-        
-        # Converte para DataFrame
-        df_export = pd.DataFrame(selected_data)
-        
-        # Formata os dados para export
-        if 'ml_score' in df_export.columns:
-            df_export['ml_score'] = df_export['ml_score'].round(3)
-        if 'probability' in df_export.columns:
-            df_export['probability'] = (df_export['probability'] * 100).round(1)
-        if 'estimated_revenue' in df_export.columns:
-            df_export['estimated_revenue'] = df_export['estimated_revenue'].round(0)
-        
-        # Renomeia colunas para português
-        column_rename = {
-            'cliente': 'Cliente',
-            'produto': 'Produto', 
-            'ml_score': 'Score ML',
-            'probability': 'Probabilidade (%)',
-            'estimated_revenue': 'Receita Estimada (R$)',
-            'last_purchase': 'Última Compra',
-            'category': 'Categoria'
-        }
-        df_export = df_export.rename(columns=column_rename)
-        
-        # Gera nome do arquivo com timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"sugestoes_ml_selecionadas_{timestamp}.csv"
-        
-        return dcc.send_data_frame(df_export.to_csv, filename, index=False)
-        
-    except Exception as e:
-        print(f"Erro ao exportar sugestões ML: {e}")
-        return dash.no_update
-
 # Callback para seletor de top gaps
 @app.callback(
     Output('gaps-table-container', 'children'),
@@ -2614,6 +2512,22 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
     
     print(f"🔄 UPDATE_PRODUCTS_CHARTS executado - pathname: {pathname}")
     print(f"   Dados filtrados da tabela recebidos: {type(derived_virtual_data)}, qtd: {len(derived_virtual_data) if derived_virtual_data else 0}")
+    
+    # VALIDAÇÃO CRÍTICA: Verificar se derived_virtual_data é válido
+    if derived_virtual_data is not None:
+        if not isinstance(derived_virtual_data, list):
+            print(f"❌ derived_virtual_data não é uma lista: {type(derived_virtual_data)}")
+            derived_virtual_data = []
+        else:
+            # Verificar se os itens são dicionários válidos
+            valid_data = []
+            for i, item in enumerate(derived_virtual_data):
+                if isinstance(item, dict):
+                    valid_data.append(item)
+                else:
+                    print(f"❌ Item {i} em derived_virtual_data não é um dict: {type(item)}")
+            derived_virtual_data = valid_data
+            print(f"✅ derived_virtual_data validado: {len(derived_virtual_data)} itens válidos")
     
     try:
         # Só processa se estiver na página de produtos
@@ -3251,11 +3165,29 @@ def update_products_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarq
             print(f"❌ Resultado não é uma lista: {type(cleaned_data)}")
             return []
         
-        # Log dos primeiros registros para debug
-        if cleaned_data:
-            print(f"🔍 Exemplo do primeiro registro: {list(cleaned_data[0].keys()) if cleaned_data[0] else 'vazio'}")
+        # Verificar se os itens da lista são dicionários válidos
+        validated_data = []
+        for i, item in enumerate(cleaned_data):
+            if isinstance(item, dict) and all(isinstance(k, str) for k in item.keys()):
+                validated_data.append(item)
+            else:
+                print(f"❌ Item {i} inválido: {type(item)}")
         
-        return cleaned_data
+        # Log dos primeiros registros para debug
+        if validated_data:
+            print(f"🔍 Exemplo do primeiro registro: {list(validated_data[0].keys()) if validated_data[0] else 'vazio'}")
+        
+        # VALIDAÇÃO FINAL ROBUSTA: Garantir que os dados são serializáveis JSON
+        try:
+            import json
+            json.dumps(validated_data[:1])  # Testa serializabilidade do primeiro item
+            print("✅ Dados validados como serializáveis JSON")
+        except (TypeError, ValueError) as json_error:
+            print(f"❌ Dados não são serializáveis JSON: {json_error}")
+            # Retornar lista vazia em caso de erro de serialização
+            return []
+        
+        return validated_data
         
     except Exception as e:
         print(f"❌ Erro em update_products_table: {e}")

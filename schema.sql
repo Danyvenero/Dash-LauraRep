@@ -82,6 +82,54 @@ CREATE TABLE IF NOT EXISTS settings (
     value_json TEXT
 );
 
+-- Tabela para feedback de recomendações ML
+CREATE TABLE IF NOT EXISTS feedback_recomendacoes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    material TEXT NOT NULL,
+    cod_cliente TEXT,
+    cliente TEXT,
+    quantidade_sugerida REAL,
+    feedback_type TEXT CHECK(feedback_type IN ('positivo', 'negativo')) NOT NULL,
+    motivo TEXT,
+    nivel_servico REAL,
+    cobertura_dias INTEGER,
+    usuario TEXT,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    modelo_versao TEXT DEFAULT 'v1.0',
+    features_usadas TEXT -- JSON das features do modelo
+);
+
+-- Tabela para ações de prospecção
+CREATE TABLE IF NOT EXISTS acoes_prospecao (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cod_cliente TEXT NOT NULL,
+    cliente TEXT NOT NULL,
+    motivo TEXT NOT NULL,
+    itens_candidatos TEXT, -- JSON array dos produtos sugeridos
+    status TEXT DEFAULT 'criada' CHECK(status IN ('criada', 'em_andamento', 'concluida', 'cancelada')),
+    usuario_criacao TEXT,
+    usuario_responsavel TEXT,
+    data_criacao DATETIME DEFAULT CURRENT_TIMESTAMP,
+    data_vencimento DATETIME,
+    observacoes TEXT
+);
+
+-- Tabela para snapshot de clientes (cache para performance)
+CREATE TABLE IF NOT EXISTS cliente_snapshot (
+    cod_cliente TEXT PRIMARY KEY,
+    cliente TEXT,
+    ultima_compra DATE,
+    dias_desde_ultima_compra INTEGER,
+    rfm_recency INTEGER,
+    rfm_frequency INTEGER,
+    rfm_monetary REAL,
+    carteira_30d REAL,
+    status_cliente TEXT CHECK(status_cliente IN ('ativo', 'atencao', 'critico', 'inativo')),
+    canal TEXT,
+    cidade_cliente TEXT,
+    data_atualizacao DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Índices para performance
 CREATE INDEX IF NOT EXISTS idx_vendas_cliente_data ON vendas(cod_cliente, data);
 CREATE INDEX IF NOT EXISTS idx_vendas_material ON vendas(material);
@@ -93,6 +141,20 @@ CREATE INDEX IF NOT EXISTS idx_cotacoes_numero ON cotacoes(numero_cotacao);
 
 CREATE INDEX IF NOT EXISTS idx_produtos_cotados_cotacao ON produtos_cotados(cotacao);
 CREATE INDEX IF NOT EXISTS idx_produtos_cotados_material ON produtos_cotados(material);
+
+-- Índices para feedback e recomendações ML
+CREATE INDEX IF NOT EXISTS idx_feedback_material ON feedback_recomendacoes(material);
+CREATE INDEX IF NOT EXISTS idx_feedback_cliente ON feedback_recomendacoes(cod_cliente);
+CREATE INDEX IF NOT EXISTS idx_feedback_timestamp ON feedback_recomendacoes(timestamp);
+CREATE INDEX IF NOT EXISTS idx_feedback_type ON feedback_recomendacoes(feedback_type);
+
+CREATE INDEX IF NOT EXISTS idx_acoes_cliente ON acoes_prospecao(cod_cliente);
+CREATE INDEX IF NOT EXISTS idx_acoes_status ON acoes_prospecao(status);
+CREATE INDEX IF NOT EXISTS idx_acoes_data_criacao ON acoes_prospecao(data_criacao);
+
+CREATE INDEX IF NOT EXISTS idx_cliente_snapshot_status ON cliente_snapshot(status_cliente);
+CREATE INDEX IF NOT EXISTS idx_cliente_snapshot_ultima_compra ON cliente_snapshot(ultima_compra);
+CREATE INDEX IF NOT EXISTS idx_cliente_snapshot_canal ON cliente_snapshot(canal);
 CREATE INDEX IF NOT EXISTS idx_produtos_cotados_cliente ON produtos_cotados(cod_cliente);
 
 -- Usuário padrão (senha: admin123)

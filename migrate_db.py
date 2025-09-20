@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 
 def migrate_database():
-    """Add missing columns to existing database"""
+    """Add missing columns to existing database - otimizado para startup"""
     
     DB_PATH = Path('instance/database.sqlite')
     
@@ -13,43 +13,41 @@ def migrate_database():
         print("❌ Database does not exist. Run init-db first.")
         return False
     
+    # Otimização: Verifica se migração é necessária antes de abrir conexão
+    needs_migration = False
+    
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     try:
-        # Check if numero_revisao column exists
+        # Verificação rápida se colunas existem
         cursor.execute('PRAGMA table_info(cotacoes)')
         columns = cursor.fetchall()
         column_names = [col[1] for col in columns]
         
+        # Verifica se alguma migração é necessária
+        required_columns = ['numero_revisao', 'linhas_cotacao', 'status_cotacao']
+        missing_columns = [col for col in required_columns if col not in column_names]
+        has_old_schema = 'material' in column_names or 'quantidade' in column_names
+        
+        if not missing_columns and not has_old_schema:
+            print("✅ Database schema is up to date - no migration needed")
+            conn.close()
+            return True
+        
         print("📋 Current cotacoes columns:", column_names)
         
-        if 'numero_revisao' not in column_names:
-            print("🔧 Adding numero_revisao column...")
-            cursor.execute('ALTER TABLE cotacoes ADD COLUMN numero_revisao TEXT')
-            print("✅ Added numero_revisao column")
-        else:
-            print("✅ numero_revisao column already exists")
-            
-        if 'linhas_cotacao' not in column_names:
-            print("🔧 Adding linhas_cotacao column...")
-            cursor.execute('ALTER TABLE cotacoes ADD COLUMN linhas_cotacao TEXT')
-            print("✅ Added linhas_cotacao column")
-        else:
-            print("✅ linhas_cotacao column already exists")
-            
-        if 'status_cotacao' not in column_names:
-            print("🔧 Adding status_cotacao column...")
-            cursor.execute('ALTER TABLE cotacoes ADD COLUMN status_cotacao TEXT')
-            print("✅ Added status_cotacao column")
-        else:
-            print("✅ status_cotacao column already exists")
+        # Adiciona colunas faltantes
+        for column in missing_columns:
+            print(f"🔧 Adding {column} column...")
+            cursor.execute(f'ALTER TABLE cotacoes ADD COLUMN {column} TEXT')
+            print(f"✅ Added {column} column")
         
-        # Remove old columns that don't match schema
-        if 'material' in column_names or 'quantidade' in column_names:
+        # Trata schema antigo se necessário
+        if has_old_schema:
             print("🔧 Old schema detected. Recreating cotacoes table...")
             
-            # Backup existing data if any
+            # Backup apenas se há dados
             cursor.execute('SELECT COUNT(*) FROM cotacoes')
             count = cursor.fetchone()[0]
             
@@ -81,14 +79,6 @@ def migrate_database():
             print("✅ Cotacoes table recreated with correct schema")
         
         conn.commit()
-        
-        # Final verification
-        cursor.execute('PRAGMA table_info(cotacoes)')
-        final_columns = cursor.fetchall()
-        print("\n📋 Final cotacoes table structure:")
-        for col in final_columns:
-            print(f"  - {col[1]} ({col[2]})")
-        
         conn.close()
         return True
         

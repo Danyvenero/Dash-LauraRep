@@ -14,6 +14,56 @@ import logging
 logger = logging.getLogger(__name__)
 
 # =======================================
+# FUNÇÕES DE PADRONIZAÇÃO DE CLIENTES
+# =======================================
+
+def deduplicate_customers(df):
+    """
+    Deduplica clientes agrupando pelo código de cliente e mantendo o nome mais recente
+    Resolve problema de mesmo código com nomes diferentes devido a alterações no cadastro
+    """
+    if df.empty or 'cod_cliente' not in df.columns or 'cliente' not in df.columns:
+        return df
+    
+    logger.info("🔧 Deduplicando clientes por código...")
+    
+    try:
+        # Primeiro, identifica qual é o nome mais recente para cada código de cliente
+        if 'data_faturamento' in df.columns:
+            # Usa data de faturamento se disponível
+            latest_customer_names = (df.dropna(subset=['cod_cliente', 'cliente', 'data_faturamento'])
+                                   .sort_values('data_faturamento')
+                                   .groupby('cod_cliente')['cliente']
+                                   .last()
+                                   .to_dict())
+        elif 'data' in df.columns:
+            # Usa data se disponível
+            latest_customer_names = (df.dropna(subset=['cod_cliente', 'cliente', 'data'])
+                                   .sort_values('data')
+                                   .groupby('cod_cliente')['cliente']
+                                   .last()
+                                   .to_dict())
+        else:
+            # Se não há data, usa o primeiro nome encontrado
+            latest_customer_names = (df.dropna(subset=['cod_cliente', 'cliente'])
+                                   .groupby('cod_cliente')['cliente']
+                                   .first()
+                                   .to_dict())
+        
+        # Aplica o mapeamento de nomes mais recentes
+        df['cliente'] = df['cod_cliente'].map(latest_customer_names).fillna(df['cliente'])
+        
+        duplicates_found = len(df.groupby('cod_cliente')['cliente'].nunique()[df.groupby('cod_cliente')['cliente'].nunique() > 1])
+        logger.info(f"✅ {duplicates_found} códigos de cliente com múltiplos nomes foram unificados")
+        
+        return df
+        
+    except Exception as e:
+        logger.error(f"❌ Erro na deduplicação de clientes: {e}")
+        return df
+
+
+# =======================================
 # FUNÇÕES DE PADRONIZAÇÃO DE VENDAS
 # =======================================
 
@@ -56,19 +106,14 @@ def ov_general_adjustments(df):
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')
     
-    # Padronizar unidades de negócio
-    if 'unidade_negocio' in df.columns:
-        df['unidade_negocio'] = df['unidade_negocio'].str.replace('WEG Automação', 'WAU')
-        df['unidade_negocio'] = df['unidade_negocio'].str.replace('WEG Digital e Sistemas', 'WDS')
-        df['unidade_negocio'] = df['unidade_negocio'].str.replace('WEG Energia', 'WEN')
-        df['unidade_negocio'] = df['unidade_negocio'].str.replace('WEG Motores Comercial e Appliance', 'WMO-C')
-        df['unidade_negocio'] = df['unidade_negocio'].str.replace('WEG Motores Industrial', 'WMO-I')
-        df['unidade_negocio'] = df['unidade_negocio'].str.replace('WEG Transmissão e Distribuição', 'WTD')
-        
-        # Renomear coluna
-        df.rename(columns={'unidade_negocio': 'unidade'}, inplace=True)
-    
-    # Conversão de data
+        # Padronizar unidades de negócio (manter nome da coluna original)
+        if 'unidade_negocio' in df.columns:
+            df['unidade_negocio'] = df['unidade_negocio'].str.replace('WEG Automação', 'WAU')
+            df['unidade_negocio'] = df['unidade_negocio'].str.replace('WEG Digital e Sistemas', 'WDS')
+            df['unidade_negocio'] = df['unidade_negocio'].str.replace('WEG Energia', 'WEN')
+            df['unidade_negocio'] = df['unidade_negocio'].str.replace('WEG Motores Comercial e Appliance', 'WMO-C')
+            df['unidade_negocio'] = df['unidade_negocio'].str.replace('WEG Motores Industrial', 'WMO-I')
+            df['unidade_negocio'] = df['unidade_negocio'].str.replace('WEG Transmissão e Distribuição', 'WTD')    # Conversão de data
     if 'data_faturamento' in df.columns:
         df['data_faturamento'] = pd.to_datetime(df['data_faturamento'], format='%d/%m/%Y', errors='coerce')
     
@@ -419,6 +464,7 @@ def apply_vendas_standardization(df):
         df = ov_hierarquia_um(df)
         df = ov_hierarquia_dois(df)
         df = ov_hierarquia_tres(df)
+        df = deduplicate_customers(df)  # Deduplica clientes por código
         
         logger.info(f"✅ Padronizações aplicadas. Shape final: {df.shape}")
         return df

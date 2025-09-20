@@ -25,6 +25,7 @@ ensure_database_schema()
 # Importa callbacks
 import webapp.callbacks
 import webapp.auth
+import webapp.b2b_advanced_callbacks  # ✅ NOVO SISTEMA B2B AVANÇADO
 
 # Callback principal de roteamento
 @app.callback(

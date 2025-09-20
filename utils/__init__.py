@@ -32,6 +32,25 @@ from .security import (
     check_file_security
 )
 
+def load_all_data():
+    """
+    Carrega todos os dados necessários para o sistema ML
+    
+    Returns:
+        tuple: (vendas_df, cotacoes_df, produtos_df)
+    """
+    try:
+        vendas_df = load_vendas_data()
+        cotacoes_df = load_cotacoes_data() 
+        produtos_df = load_produtos_cotados_data()
+        
+        return vendas_df, cotacoes_df, produtos_df
+        
+    except Exception as e:
+        print(f"⚠️ Erro ao carregar dados: {e}")
+        import pandas as pd
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
 __all__ = [
     'init_db',
     'get_connection', 
@@ -39,6 +58,7 @@ __all__ = [
     'load_vendas_data',
     'load_cotacoes_data', 
     'load_produtos_cotados_data',
+    'load_all_data',
     'get_setting',
     'save_setting',
     'verify_user',

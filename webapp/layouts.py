@@ -9,6 +9,7 @@ from dash.dash_table import FormatTemplate
 import dash_bootstrap_components as dbc
 from webapp.auth import require_login, create_user_info_component, create_login_layout
 from webapp.chat_interface import create_chat_interface
+from webapp.b2b_advanced_layout import create_advanced_b2b_layout
 from utils import is_authenticated
 import datetime
 
@@ -153,6 +154,9 @@ def create_sidebar():
                 ]),
                 html.Li([
                     dcc.Link("🤖 Assistente IA", href="/app/chat", className="sidebar-menu-item")
+                ]),
+                html.Li([
+                    dcc.Link("🚀 B2B Analytics Avançado", href="/app/b2b-advanced", className="sidebar-menu-item")
                 ]),
                 html.Li([
                     dcc.Link("🎯 Insights IA", href="/app/insights", className="sidebar-menu-item")
@@ -381,7 +385,8 @@ def create_products_layout():
                 dbc.ButtonGroup([
                     dbc.Button("📥 Download CSV", id="btn-download-csv-produtos", color="primary"),
                     dbc.Button("📄 PDF por Cliente", id="btn-pdf-cliente", color="success"),
-                    dbc.Button("🤖 Sugestões IA", id="btn-sugestoes-ia", color="info")
+                    dbc.Button("🚀 B2B Analytics", id="btn-b2b-redirect", 
+                             color="info", href="/app/b2b-advanced", external_link=True)
                 ], className="d-flex justify-content-end")
             ], width=12, md=4, className="d-flex align-items-end justify-content-end")
         ], className="mb-4"),
@@ -512,18 +517,7 @@ def create_products_layout():
         
         # Componentes de download
         dcc.Download(id="download-csv-produtos"),
-        dcc.Download(id="download-pdf-produtos"),
-        
-        # Modal de Sugestões IA
-        dbc.Modal([
-            dbc.ModalHeader("🤖 Sugestões de Inteligência Artificial"),
-            dbc.ModalBody([
-                html.Div(id="conteudo-sugestoes-ia")
-            ]),
-            dbc.ModalFooter([
-                dbc.Button("Fechar", id="btn-fechar-modal-ia", className="ms-auto", n_clicks=0)
-            ])
-        ], id="modal-sugestoes-ia", size="lg", is_open=False)
+        dcc.Download(id="download-pdf-produtos")
     ])
 
 @require_login
@@ -557,7 +551,6 @@ def create_analytics_layout():
         # Componentes de download
         dcc.Download(id="download-analytics-csv"),
         dcc.Download(id="download-analytics-pdf"),
-        dcc.Download(id="export-download-ml"),  # Para exportar sugestões ML
         
         # Stores para dados
         dcc.Store(id="analytics-data-store"),
@@ -915,6 +908,11 @@ def get_layout(pathname):
         return create_main_layout()
     elif pathname == '/app/chat':
         return create_main_layout()
+    elif pathname == '/app/purchase-suggestions':
+        # Redireciona para B2B Analytics unificado
+        return create_advanced_b2b_layout()
+    elif pathname == '/app/b2b-advanced':
+        return create_advanced_b2b_layout()
     elif pathname == '/app/insights':
         return create_main_layout()
     elif pathname == '/app/config':
