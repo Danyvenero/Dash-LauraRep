@@ -1,6 +1,6 @@
 """
-Layout B2B Avançado Integrado
-Sistema completo de recomendações com todas as funcionalidades implementadas
+Layout B2B Avançado Integrado - Versão Otimizada
+Sistema completo de recomendações com UX aprimorada
 """
 
 import dash
@@ -17,6 +17,13 @@ import numpy as np
 from utils.recommendation_actions import RecommendationActionHandler
 from utils.ml_feedback_learning import MLFeedbackLearningSystem, FeedbackMetrics
 from utils.advanced_export_system import AdvancedExportSystem
+from utils.ux_optimizations import (
+    create_loading_skeleton, 
+    create_enhanced_filter_section,
+    create_performance_metrics_card,
+    create_smart_insights_section,
+    CUSTOM_CSS
+)
 
 
 def create_overview_content():
@@ -52,142 +59,8 @@ def create_empty_state():
 
 
 def create_b2b_filters_section():
-    """Cria seção de filtros avançados para B2B"""
-    return dbc.Card([
-        dbc.CardHeader([
-            dbc.Row([
-                dbc.Col([
-                    html.H5([
-                        html.I(className="fas fa-filter me-2"),
-                        "Filtros Avançados"
-                    ], className="mb-0")
-                ], width=6),
-                dbc.Col([
-                    dbc.ButtonGroup([
-                        dbc.Button("Aplicar Filtros", id="btn-b2b-apply-filters", color="primary", size="sm"),
-                        dbc.Button("Limpar", id="btn-b2b-clear-filters", color="outline-secondary", size="sm"),
-                        dbc.Button("Salvar", id="btn-b2b-save-filters", color="success", size="sm")
-                    ])
-                ], width=6, className="text-end")
-            ]),
-            
-            # Alerta de confirmação para filtros salvos
-            dbc.Alert([
-                html.I(className="fas fa-check-circle me-2"),
-                "Filtros salvos com sucesso!"
-            ], id="alert-filters-saved", is_open=False, duration=3000, color="success")
-        ]),
-        dbc.CardBody([
-            # Componente para carregamento automático dos filtros
-            dcc.Interval(
-                id="filter-loader-interval",
-                interval=1000,  # 1 segundo - mais rápido para debug
-                n_intervals=0,
-                max_intervals=10  # Mais tentativas para debug
-            ),
-            dbc.Row([
-                dbc.Col([
-                    dbc.Label("Cliente(s):", className="fw-bold"),
-                    dcc.Dropdown(
-                        id="filter-b2b-cliente",
-                        placeholder="Selecionar clientes...",
-                        multi=True,
-                        className="mb-3"
-                    )
-                ], width=3),
-                dbc.Col([
-                    dbc.Label("Material(is):", className="fw-bold"),
-                    dcc.Dropdown(
-                        id="filter-b2b-material",
-                        placeholder="Selecionar materiais...",
-                        multi=True,
-                        className="mb-3"
-                    )
-                ], width=3),
-                dbc.Col([
-                    dbc.Label("Período de Análise:", className="fw-bold"),
-                    dcc.DatePickerRange(
-                        id="filter-b2b-periodo",
-                        display_format="DD/MM/YYYY",
-                        className="mb-3"
-                    )
-                ], width=3),
-                dbc.Col([
-                    dbc.Label("Confidence Mínima:", className="fw-bold"),
-                    dcc.Slider(
-                        id="filter-b2b-confidence",
-                        min=0,
-                        max=100,
-                        value=70,
-                        marks={i: f"{i}%" for i in range(0, 101, 25)},
-                        tooltip={"placement": "bottom", "always_visible": True},
-                        className="mb-3"
-                    )
-                ], width=3)
-            ]),
-            dbc.Row([
-                dbc.Col([
-                    dbc.Label("Filtros de Prioridade:", className="fw-bold"),
-                    dbc.Checklist(
-                        id="filter-b2b-priority",
-                        options=[
-                            {"label": "🔥 Alta Prioridade", "value": "alta"},
-                            {"label": "⚡ Sazonalidade Ativa", "value": "sazonal"},
-                            {"label": "📈 Alto Potencial ROI", "value": "roi"},
-                            {"label": "🎯 Gaps Críticos", "value": "gaps"}
-                        ],
-                        value=["alta"],
-                        inline=True,
-                        className="mb-3"
-                    )
-                ], width=12)
-            ]),
-            dbc.Row([
-                dbc.Col([
-                    dbc.Label("Hierarquia Produto - Nível 1:", className="fw-bold"),
-                    dcc.Dropdown(
-                        id="filter-b2b-hier-produto-1",
-                        placeholder="Carregando categorias...",
-                        multi=True,
-                        className="mb-3",
-                        options=[
-                            {"label": "Carregando...", "value": "loading"}
-                        ]
-                    )
-                ], width=3),
-                dbc.Col([
-                    dbc.Label("Hierarquia Produto - Nível 2:", className="fw-bold"),
-                    dcc.Dropdown(
-                        id="filter-b2b-hier-produto-2",
-                        placeholder="Selecionar subcategoria...",
-                        multi=True,
-                        className="mb-3"
-                    )
-                ], width=3),
-                dbc.Col([
-                    dbc.Label("Hierarquia Produto - Nível 3:", className="fw-bold"),
-                    dcc.Dropdown(
-                        id="filter-b2b-hier-produto-3",
-                        placeholder="Selecionar produto...",
-                        multi=True,
-                        className="mb-3"
-                    )
-                ], width=3),
-                dbc.Col([
-                    dbc.Label("Unidade de Negócio:", className="fw-bold"),
-                    dcc.Dropdown(
-                        id="filter-b2b-unidade-negocio",
-                        placeholder="Carregando unidades...",
-                        multi=True,
-                        className="mb-3",
-                        options=[
-                            {"label": "Carregando...", "value": "loading"}
-                        ]
-                    )
-                ], width=3)
-            ])
-        ], className="py-2")
-    ], className="mb-4")
+    """Cria seção de filtros avançados para B2B com UX otimizada"""
+    return create_enhanced_filter_section()  # Usa o componente otimizado
 
 
 def create_b2b_modals():
@@ -241,98 +114,56 @@ def create_b2b_modals():
                                 )
                             ])
                         ])
-                    ], width=12)
+                    ], width=6),
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H5("⚙️ Personalizado", className="text-warning"),
+                                html.P("Configure filtros específicos e formatos personalizados para sua análise."),
+                                dbc.Button(
+                                    "Configurar Exportação",
+                                    id="btn-export-custom",
+                                    color="warning",
+                                    className="w-100"
+                                )
+                            ])
+                        ])
+                    ], width=6)
                 ])
             ]),
             dbc.ModalFooter([
-                dbc.Button("Fechar", id="btn-close-export-modal", color="secondary")
+                dbc.Button("Fechar", id="close-export-modal", className="ms-auto", color="secondary")
             ])
-        ], id="modal-b2b-export", size="lg", is_open=False),
+        ], id="export-modal", is_open=False, size="lg"),
         
-        # Modal de feedback detalhado
+        # Modal de recomendações
         dbc.Modal([
-            dbc.ModalHeader("💡 Feedback Detalhado"),
-            dbc.ModalBody([
-                dbc.Form([
-                    dbc.Row([
-                        dbc.Col([
-                            dbc.Label("Tipo de Feedback:", className="fw-bold"),
-                            dcc.Dropdown(
-                                id="feedback-type-detailed",
-                                options=[
-                                    {"label": "👍 Recomendação Útil", "value": "positive"},
-                                    {"label": "👎 Recomendação Inadequada", "value": "negative"},
-                                    {"label": "❓ Necessita Mais Informações", "value": "neutral"},
-                                    {"label": "🚀 Já Implementado", "value": "implemented"}
-                                ],
-                                placeholder="Selecionar tipo..."
-                            )
-                        ], width=6),
-                        dbc.Col([
-                            dbc.Label("Prioridade:", className="fw-bold"),
-                            dcc.Dropdown(
-                                id="feedback-priority",
-                                options=[
-                                    {"label": "🔥 Alta", "value": "high"},
-                                    {"label": "⚡ Média", "value": "medium"},
-                                    {"label": "📝 Baixa", "value": "low"}
-                                ],
-                                value="medium"
-                            )
-                        ], width=6)
-                    ], className="mb-3"),
-                    dbc.Row([
-                        dbc.Col([
-                            dbc.Label("Comentários Adicionais:", className="fw-bold"),
-                            dbc.Textarea(
-                                id="feedback-comments",
-                                placeholder="Compartilhe suas observações, sugestões ou contexto adicional...",
-                                rows=4
-                            )
-                        ], width=12)
-                    ], className="mb-3"),
-                    html.Div(id="feedback-material-context")
-                ])
-            ]),
+            dbc.ModalHeader("🎯 Recomendações Inteligentes"),
+            dbc.ModalBody(id="recommendations-modal-body"),
             dbc.ModalFooter([
-                dbc.Button("Enviar Feedback", id="btn-submit-detailed-feedback", color="primary"),
-                dbc.Button("Cancelar", id="btn-cancel-feedback", color="secondary")
+                dbc.Button("Aceitar Recomendação", id="btn-accept-recommendation", color="success", className="me-2"),
+                dbc.Button("Recusar", id="btn-reject-recommendation", color="danger", className="me-2"),
+                dbc.Button("Fechar", id="close-recommendations-modal", color="secondary")
             ])
-        ], id="modal-b2b-feedback", size="lg", is_open=False)
+        ], id="recommendations-modal", is_open=False, size="lg")
     ])
 
 
 def create_advanced_b2b_layout():
-    """
-    Cria layout avançado B2B com todas as funcionalidades implementadas
-    
-    Funcionalidades COMPLETAS:
-    1. Análise de Gaps de Mercado (W% e Q%)
-    2. Detecção de Sazonalidade
-    3. KPIs Comerciais Avançados
-    4. Benchmark de Mercado
-    5. Sistema de Alertas Inteligentes
-    6. Insights Acionáveis
-    7. Exportação Avançada (PDF/Excel/ZIP)
-    8. Sistema de Feedback e Aprendizado ML
-    9. Filtros Avançados com Salvamento
-    10. Interface Completa de Recomendações
-    """
-    
+    """Layout principal do Sistema B2B Avançado com UX otimizada"""
     return dbc.Container([
-        # Stores para dados
-        dcc.Store(id="store-b2b-recommendations-data"),
-        dcc.Store(id="store-b2b-analytics-data"),
-        dcc.Store(id="store-b2b-export-data"),
+        # CSS personalizado integrado como componente estilizado
+        dcc.Store(id="ux-css-store", data={"loaded": True}),
         
-        # Header da página
+        # Cabeçalho do Dashboard
         dbc.Row([
             dbc.Col([
-                html.H1([
-                    html.I(className="fas fa-lightbulb me-3"),
-                    "Sugestão Inteligente de Compras"
-                ], className="text-primary mb-0"),
-                html.P("Sistema B2B de Recomendações - Laura Representações", className="text-muted")
+                html.H2([
+                    html.I(className="fas fa-robot me-2 text-primary"),
+                    "Sistema B2B Avançado",
+                    dbc.Badge("ML Powered", color="success", className="ms-2")
+                ], className="mb-0"),
+                html.P("Recomendações inteligentes baseadas em Machine Learning", className="text-muted")
             ], width=8),
             dbc.Col([
                 dbc.ButtonGroup([
@@ -348,11 +179,17 @@ def create_advanced_b2b_layout():
             ], width=4, className="text-end")
         ], className="mb-4"),
         
+        # Loading skeleton para feedback visual
+        html.Div(id="b2b-loading-container", children=create_loading_skeleton(), style={"display": "none"}),
+        
         # Seção de Filtros Avançados
         create_b2b_filters_section(),
         
-        # KPIs principais
-        html.Div(id="b2b-kpi-cards-container"),
+        # KPIs principais com UX otimizada
+        create_performance_metrics_card(),
+        
+        # Insights inteligentes
+        create_smart_insights_section(),
         
         # NOVA SEÇÃO: Análise de Gaps de Compra
         dbc.Card([
@@ -435,55 +272,52 @@ def create_advanced_b2b_layout():
                 ], id="segmentation-analysis-tabs", active_tab="tab-conversion-analysis"),
                 
                 html.Div(id="segmentation-analysis-content", className="mt-3", children=[
-                    dbc.Row([
-                        dbc.Col([
-                            html.Div(id="conversion-analysis-container", children=[
-                                html.P([
-                                    html.I(className="fas fa-play me-2"),
-                                    "Clique em 'Analisar Conversão' para identificar produtos com baixa taxa de conversão."
-                                ], className="text-muted text-center")
-                            ])
-                        ], width=12)
-                    ]),
-                    dbc.Row([
-                        dbc.Col([
-                            html.Div(id="cross-selling-analysis-container", children=[
-                                html.P([
-                                    html.I(className="fas fa-play me-2"),
-                                    "Clique em 'Cross-Selling' para descobrir oportunidades de venda cruzada."
-                                ], className="text-muted text-center")
-                            ])
-                        ], width=12)
-                    ])
+                    html.P([
+                        html.I(className="fas fa-chart-bar me-2"),
+                        "Selecione uma aba acima para visualizar as análises."
+                    ], className="text-muted text-center")
                 ])
             ])
         ], className="mb-4"),
         
-        # Tabela de recomendações
+        # Seção de Recomendações Inteligentes
         dbc.Card([
             dbc.CardHeader([
-                html.H5([
-                    html.I(className="fas fa-table me-2"),
-                    "Recomendações de Compra"
-                ], className="mb-0")
+                dbc.Row([
+                    dbc.Col([
+                        html.H5([
+                            html.I(className="fas fa-magic me-2"),
+                            "Recomendações Inteligentes"
+                        ], className="mb-0")
+                    ], width=6),
+                    dbc.Col([
+                        dbc.ButtonGroup([
+                            dbc.Button(
+                                [html.I(className="fas fa-sync me-1"), "Atualizar"],
+                                id="btn-refresh-recommendations",
+                                color="primary",
+                                size="sm"
+                            ),
+                            dbc.Button(
+                                [html.I(className="fas fa-cog me-1"), "Configurar"],
+                                id="btn-config-recommendations",
+                                color="secondary",
+                                size="sm"
+                            )
+                        ])
+                    ], width=6, className="text-end")
+                ])
             ]),
             dbc.CardBody([
-                html.Div(id="b2b-recommendations-table-container"),
-                html.Hr(),
-                html.P([
-                    html.Strong("Explicabilidade: "),
-                    "Cada sugestão é baseada em análise de gaps de mercado, sazonalidade histórica, "
-                    "padrões de recompra e benchmarking com clientes similares. "
-                    "Confidence ≥70% indica alta confiabilidade estatística."
-                ], className="text-muted small")
+                html.Div(id="recommendations-container", className="mb-3")
             ])
         ], className="mb-4"),
         
-        # Seção de gráficos analíticos
+        # Seção de Análises Avançadas
         dbc.Card([
             dbc.CardHeader([
                 html.H5([
-                    html.I(className="fas fa-chart-line me-2"),
+                    html.I(className="fas fa-analytics me-2"),
                     "Análises de Apoio à Decisão"
                 ], className="mb-0")
             ]),

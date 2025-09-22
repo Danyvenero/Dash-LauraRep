@@ -19,8 +19,7 @@ from webapp import app
 # Imports das funcionalidades B2B
 from utils.ml_recommendations import get_purchase_recommender, get_conversion_analyzer
 from utils import load_all_data
-from utils.db import get_connection as get_db_connection
-from utils import load_vendas_data
+from utils.db import get_connection as get_db_connection, load_vendas_data
 from webapp.b2b_advanced_layout import (
     create_overview_content, 
     create_gaps_content,
@@ -1453,6 +1452,518 @@ def execute_learning_cycle(n_clicks):
 
 
 # =============================================================================
+# CALLBACKS: PAINÉIS DE APRENDIZADO ML
+# =============================================================================
+
+@callback(
+    Output('b2b-learning-content', 'children'),
+    [Input('b2b-learning-tabs', 'active_tab')],
+    prevent_initial_call=True
+)
+def update_learning_content(active_tab):
+    """Atualiza conteúdo dos painéis de aprendizado ML"""
+    
+    if active_tab == "tab-b2b-feedback-metrics":
+        return generate_feedback_metrics_content()
+    elif active_tab == "tab-b2b-ml-weights":
+        return generate_ml_weights_content()
+    elif active_tab == "tab-b2b-material-performance":
+        return generate_material_performance_content()
+    else:
+        return html.Div("Selecione uma aba para visualizar o conteúdo.")
+
+
+def generate_feedback_metrics_content():
+    """Gera conteúdo das métricas de feedback"""
+    try:
+        from utils.ml_feedback_learning import MLFeedbackLearningSystem
+        
+        learning_system = MLFeedbackLearningSystem()
+        metrics = learning_system.analyze_feedback_patterns(30)  # Últimos 30 dias
+        
+        if metrics.total_feedbacks == 0:
+            return dbc.Alert([
+                html.I(className="fas fa-info-circle me-2"),
+                "Nenhum feedback registrado nos últimos 30 dias. ",
+                "O sistema de aprendizado será ativado quando houver interações dos usuários."
+            ], color="info")
+        
+        return dbc.Container([
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(metrics.total_feedbacks, className="text-primary"),
+                            html.P("Total de Feedbacks", className="mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{metrics.positive_rate:.1%}", className="text-success"),
+                            html.P("Taxa Positiva", className="mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{metrics.relevance_rate:.1%}", className="text-info"),
+                            html.P("Taxa de Relevância", className="mb-0")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"{metrics.avg_confidence_adjustment:.2f}", className="text-warning"),
+                            html.P("Ajuste Médio", className="mb-0")
+                        ])
+                    ])
+                ], width=3)
+            ], className="mb-4"),
+            
+            dbc.Row([
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader("📈 Top Materiais Performance"),
+                        dbc.CardBody([
+                            html.Ul([
+                                html.Li(material) for material in metrics.top_performing_materials[:5]
+                            ]) if metrics.top_performing_materials else html.P("Nenhum material com destaque ainda.")
+                        ])
+                    ])
+                ], width=6),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardHeader("📉 Materiais com Baixa Performance"),
+                        dbc.CardBody([
+                            html.Ul([
+                                html.Li(material) for material in metrics.underperforming_materials[:5]
+                            ]) if metrics.underperforming_materials else html.P("Nenhum material com baixa performance.")
+                        ])
+                    ])
+                ], width=6)
+            ])
+        ])
+        
+    except Exception as e:
+        return dbc.Alert(f"Erro ao carregar métricas: {e}", color="danger")
+
+
+def generate_ml_weights_content():
+    """Gera conteúdo dos pesos do algoritmo"""
+    try:
+        from utils.ml_feedback_learning import MLFeedbackLearningSystem
+        
+        learning_system = MLFeedbackLearningSystem()
+        weights = learning_system.ml_weights
+        
+        weight_cards = []
+        for weight_name, weight_value in weights.items():
+            if isinstance(weight_value, (int, float)):
+                weight_cards.append(
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6(weight_name.replace('_', ' ').title(), className="mb-1"),
+                                html.H4(f"{weight_value:.3f}", className="text-primary mb-0")
+                            ])
+                        ])
+                    ], width=4, className="mb-3")
+                )
+        
+        return dbc.Container([
+            dbc.Alert([
+                html.I(className="fas fa-info-circle me-2"),
+                "Estes pesos controlam como o algoritmo de ML pondera diferentes fatores ao gerar recomendações."
+            ], color="info", className="mb-3"),
+            
+            dbc.Row(weight_cards)
+        ])
+        
+    except Exception as e:
+        return dbc.Alert(f"Erro ao carregar pesos: {e}", color="danger")
+
+
+def generate_material_performance_content():
+    """Gera conteúdo da performance de materiais"""
+    try:
+        import sqlite3
+        
+        conn = sqlite3.connect('instance/database.sqlite')
+        
+        # Buscar performance dos materiais
+        query = """
+            SELECT material, 
+                   SUM(recommendation_count) as total_recommendations,
+                   SUM(positive_feedback_count) as total_positive,
+                   SUM(negative_feedback_count) as total_negative,
+                   AVG(conversion_rate) as avg_conversion_rate,
+                   AVG(avg_confidence_score) as avg_confidence
+            FROM material_performance_history
+            GROUP BY material
+            ORDER BY total_recommendations DESC
+            LIMIT 10
+        """
+        
+        df = pd.read_sql(query, conn)
+        conn.close()
+        
+        if df.empty:
+            return dbc.Alert([
+                html.I(className="fas fa-chart-bar me-2"),
+                "Nenhum dado de performance disponível ainda. ",
+                "Os dados serão populados conforme os usuários interagem com as recomendações."
+            ], color="info")
+        
+        # Criar tabela de performance
+        table = dash_table.DataTable(
+            data=df.to_dict('records'),
+            columns=[
+                {"name": "Material", "id": "material"},
+                {"name": "Recomendações", "id": "total_recommendations", "type": "numeric"},
+                {"name": "Feedbacks +", "id": "total_positive", "type": "numeric"},
+                {"name": "Feedbacks -", "id": "total_negative", "type": "numeric"},
+                {"name": "Taxa Conversão", "id": "avg_conversion_rate", "type": "numeric", "format": {"specifier": ".2%"}},
+                {"name": "Confiança Média", "id": "avg_confidence", "type": "numeric", "format": {"specifier": ".2f"}}
+            ],
+            style_cell={'textAlign': 'left'},
+            style_data_conditional=[
+                {
+                    'if': {'row_index': 'odd'},
+                    'backgroundColor': 'rgb(248, 248, 248)'
+                }
+            ],
+            style_header={
+                'backgroundColor': 'rgb(230, 230, 230)',
+                'fontWeight': 'bold'
+            }
+        )
+        
+        return dbc.Container([
+            dbc.Alert([
+                html.I(className="fas fa-chart-line me-2"),
+                f"Performance dos top {len(df)} materiais mais recomendados."
+            ], color="success", className="mb-3"),
+            
+            table
+        ])
+        
+    except Exception as e:
+        return dbc.Alert(f"Erro ao carregar performance: {e}", color="danger")
+
+
+# =============================================================================
+# CALLBACKS: RECOMENDAÇÕES INTELIGENTES
+# =============================================================================
+
+@callback(
+    Output('recommendations-container', 'children'),
+    [Input('btn-refresh-recommendations', 'n_clicks'),
+     Input('btn-config-recommendations', 'n_clicks')],
+    prevent_initial_call=True
+)
+def update_recommendations_container(refresh_clicks, config_clicks):
+    """Atualiza container de recomendações inteligentes"""
+    ctx = dash.callback_context
+    
+    if not ctx.triggered:
+        return generate_empty_recommendations()
+    
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    try:
+        if trigger_id == 'btn-refresh-recommendations':
+            return generate_smart_recommendations()
+        elif trigger_id == 'btn-config-recommendations':
+            return generate_recommendations_config()
+        else:
+            return generate_empty_recommendations()
+            
+    except Exception as e:
+        logger.error(f"Erro ao atualizar recomendações: {e}")
+        return generate_error_recommendations(str(e))
+
+
+def generate_empty_recommendations():
+    """Gera estado inicial das recomendações"""
+    return dbc.Alert([
+        html.I(className="fas fa-lightbulb me-2"),
+        html.Strong("Recomendações Inteligentes"),
+        html.Br(),
+        "Clique em 'Atualizar' para gerar recomendações baseadas nos dados atuais."
+    ], color="info", className="mb-3")
+
+
+def generate_smart_recommendations():
+    """Gera recomendações inteligentes baseadas nos dados"""
+    try:
+        # Carrega dados do sistema
+        vendas_df = load_vendas_data()
+        
+        # Carrega dados adicionais
+        try:
+            vendas_data, cotacoes_df, produtos_cotados_df = load_all_data()
+            # Se vendas_df está vazio, usa o vendas_data da função load_all_data
+            if vendas_df.empty and not vendas_data.empty:
+                vendas_df = vendas_data
+        except Exception as e:
+            logger.warning(f"Erro ao carregar dados adicionais: {e}")
+            # Cria DataFrames vazios como fallback
+            cotacoes_df = pd.DataFrame()
+            produtos_cotados_df = pd.DataFrame()
+        
+        # Verifica se há dados suficientes
+        dados_disponiveis = False
+        total_registros = 0
+        datasets_info = []
+        
+        if not vendas_df.empty:
+            dados_disponiveis = True
+            total_registros += len(vendas_df)
+            datasets_info.append(f"Vendas: {len(vendas_df):,}")
+            
+        if not produtos_cotados_df.empty:
+            dados_disponiveis = True
+            total_registros += len(produtos_cotados_df)
+            datasets_info.append(f"Cotações: {len(produtos_cotados_df):,}")
+            
+        if not cotacoes_df.empty:
+            dados_disponiveis = True
+            total_registros += len(cotacoes_df)
+            datasets_info.append(f"Cotações Base: {len(cotacoes_df):,}")
+        
+        if not dados_disponiveis or total_registros < 10:
+            return dbc.Alert([
+                html.I(className="fas fa-exclamation-triangle me-2"),
+                "Dados insuficientes para gerar recomendações. ",
+                html.Br(),
+                f"Total de registros: {total_registros}. Mínimo necessário: 10.",
+                html.Br(),
+                "Datasets carregados: " + ", ".join(datasets_info) if datasets_info else "Nenhum dataset com dados."
+            ], color="warning")
+        
+        # Análise básica dos dados para gerar recomendações inteligentes
+        total_clientes = 0
+        total_produtos = 0
+        total_cotacoes = 0
+        
+        # Conta clientes únicos de vendas
+        if not vendas_df.empty and 'cod_cliente' in vendas_df.columns:
+            total_clientes += len(vendas_df['cod_cliente'].unique())
+        
+        # Conta produtos únicos de vendas    
+        if not vendas_df.empty and 'material' in vendas_df.columns:
+            total_produtos = len(vendas_df['material'].unique())
+            
+        # Conta cotações
+        if not produtos_cotados_df.empty:
+            total_cotacoes = len(produtos_cotados_df)
+        
+        # Adiciona clientes de cotações se houver
+        if not produtos_cotados_df.empty and 'cod_cliente' in produtos_cotados_df.columns:
+            clientes_cotacoes = set(produtos_cotados_df['cod_cliente'].unique())
+            if not vendas_df.empty and 'cod_cliente' in vendas_df.columns:
+                clientes_vendas = set(vendas_df['cod_cliente'].unique())
+                total_clientes = len(clientes_vendas.union(clientes_cotacoes))
+            else:
+                total_clientes = len(clientes_cotacoes)
+        
+        recommendations = []
+        
+        # Recomendação 1: Análise de Performance de Clientes
+        if total_clientes > 0:
+            if total_clientes >= 10:
+                nivel = "excelente base"
+                cor = "success"
+                acao = "Analise os top 20% para estratégias de upselling e cross-selling."
+            elif total_clientes >= 5:
+                nivel = "base sólida"
+                cor = "primary"
+                acao = "Foque nos clientes mais ativos para maximizar receita."
+            else:
+                nivel = "base inicial"
+                cor = "warning"
+                acao = "Concentre esforços em fidelizar os clientes existentes."
+                
+            recommendations.append(
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6([
+                            html.I(className="fas fa-users me-2 text-" + cor),
+                            f"Base de Clientes: {nivel.title()}"
+                        ]),
+                        html.P(f"Identificados {total_clientes} clientes únicos. {acao}", 
+                               className="mb-2"),
+                        dbc.Button("Analisar Clientes", size="sm", color="outline-" + cor)
+                    ])
+                ], className="mb-2")
+            )
+        
+        # Recomendação 2: Análise de Portfolio de Produtos
+        if total_produtos > 0:
+            if total_produtos >= 50:
+                estrategia = "Foque na análise 80/20 para otimizar estoque e vendas."
+                cor = "primary"
+            elif total_produtos >= 20:
+                estrategia = "Analise quais produtos têm melhor margem e giro."
+                cor = "info"
+            else:
+                estrategia = "Considere expandir o portfolio com produtos complementares."
+                cor = "warning"
+                
+            recommendations.append(
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6([
+                            html.I(className="fas fa-boxes me-2 text-" + cor),
+                            "Portfolio de Produtos"
+                        ]),
+                        html.P(f"Catálogo com {total_produtos} produtos únicos. {estrategia}", 
+                               className="mb-2"),
+                        dbc.Button("Analisar Portfolio", size="sm", color="outline-" + cor)
+                    ])
+                ], className="mb-2")
+            )
+        
+        # Recomendação 3: Análise de Cotações vs Vendas
+        if total_cotacoes > 0:
+            if not vendas_df.empty:
+                taxa_conversao_estimada = min(100, (len(vendas_df) / total_cotacoes) * 100)
+                if taxa_conversao_estimada > 50:
+                    insight = "Excelente taxa de conversão! Analise padrões de sucesso."
+                    cor = "success"
+                elif taxa_conversao_estimada > 25:
+                    insight = "Boa conversão, mas há espaço para melhoria."
+                    cor = "primary"
+                else:
+                    insight = "Oportunidade de melhorar processo de vendas."
+                    cor = "warning"
+            else:
+                insight = "Muitas cotações sem vendas registradas. Analise gaps."
+                cor = "danger"
+                
+            recommendations.append(
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6([
+                            html.I(className="fas fa-chart-pie me-2 text-" + cor),
+                            "Análise de Conversão"
+                        ]),
+                        html.P(f"{total_cotacoes} cotações registradas. {insight}", 
+                               className="mb-2"),
+                        dbc.Button("Analisar Conversão", size="sm", color="outline-" + cor)
+                    ])
+                ], className="mb-2")
+            )
+        
+        # Recomendação 4: Sazonalidade e Tendências
+        recommendations.append(
+            dbc.Card([
+                dbc.CardBody([
+                    html.H6([
+                        html.I(className="fas fa-calendar-alt me-2 text-info"),
+                        "Padrões Temporais"
+                    ]),
+                    html.P("Análise de sazonalidade pode revelar oportunidades de planejamento e previsão de demanda.", 
+                           className="mb-2"),
+                    dbc.Button("Analisar Sazonalidade", size="sm", color="outline-info")
+                ])
+            ], className="mb-2")
+        )
+        
+        return html.Div([
+            dbc.Alert([
+                html.I(className="fas fa-check-circle me-2"),
+                html.Strong("✨ Recomendações Inteligentes Atualizadas"),
+                html.Br(),
+                f"📊 Baseadas em: {' | '.join(datasets_info)}",
+                html.Br(),
+                f"📈 Total: {total_registros:,} registros analisados"
+            ], color="success", className="mb-3"),
+            html.Div(recommendations)
+        ])
+        
+    except Exception as e:
+        logger.error(f"Erro ao gerar recomendações: {e}")
+        return generate_error_recommendations(str(e))
+
+
+def generate_recommendations_config():
+    """Gera interface de configuração das recomendações"""
+    return dbc.Card([
+        dbc.CardHeader([
+            html.H6([
+                html.I(className="fas fa-cog me-2"),
+                "Configurações de Recomendações"
+            ], className="mb-0")
+        ]),
+        dbc.CardBody([
+            dbc.Form([
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Label("Frequência de Atualização:"),
+                        dcc.Dropdown(
+                            options=[
+                                {"label": "Manual", "value": "manual"},
+                                {"label": "Diária", "value": "daily"},
+                                {"label": "Semanal", "value": "weekly"}
+                            ],
+                            value="manual",
+                            id="recommendations-frequency"
+                        )
+                    ], width=6),
+                    dbc.Col([
+                        dbc.Label("Nível de Detalhamento:"),
+                        dcc.Dropdown(
+                            options=[
+                                {"label": "Básico", "value": "basic"},
+                                {"label": "Intermediário", "value": "intermediate"},
+                                {"label": "Avançado", "value": "advanced"}
+                            ],
+                            value="intermediate",
+                            id="recommendations-detail-level"
+                        )
+                    ], width=6)
+                ], className="mb-3"),
+                
+                dbc.Row([
+                    dbc.Col([
+                        dbc.Label("Filtros Automáticos:"),
+                        dbc.Checklist(
+                            options=[
+                                {"label": "Apenas clientes ativos", "value": "active_only"},
+                                {"label": "Produtos com estoque", "value": "in_stock"},
+                                {"label": "Margem mínima 15%", "value": "min_margin"}
+                            ],
+                            value=["active_only"],
+                            id="recommendations-filters"
+                        )
+                    ], width=12)
+                ], className="mb-3"),
+                
+                dbc.Button([
+                    html.I(className="fas fa-save me-2"),
+                    "Salvar Configurações"
+                ], color="primary", id="btn-save-recommendations-config")
+            ])
+        ])
+    ])
+
+
+def generate_error_recommendations(error_msg):
+    """Gera estado de erro das recomendações"""
+    return dbc.Alert([
+        html.I(className="fas fa-exclamation-triangle me-2"),
+        html.Strong("Erro nas Recomendações"),
+        html.Br(),
+        f"Detalhes: {error_msg}"
+    ], color="danger")
+
+
+# =============================================================================
 # CALLBACK: SALVAR FILTROS B2B
 # =============================================================================
 @callback(
@@ -1836,6 +2347,60 @@ def update_hier_produto_3_options(hier_produto_2_values):
     except Exception as e:
         logger.error(f"Erro ao buscar hierarquia nível 3: {e}")
         return []
+
+
+# Callback para controlar estado disabled dos filtros hierárquicos
+@callback(
+    [Output('filter-b2b-hier-produto-2', 'disabled'),
+     Output('filter-b2b-hier-produto-3', 'disabled')],
+    [Input('filter-b2b-hier-produto-1', 'value'),
+     Input('filter-b2b-hier-produto-2', 'value')],
+    prevent_initial_call=True
+)
+def control_hierarchy_disabled_state(nivel1_values, nivel2_values):
+    """Controla o estado disabled dos dropdowns hierárquicos"""
+    # Nível 2 fica habilitado se Nível 1 tiver seleções
+    nivel2_disabled = not bool(nivel1_values)
+    
+    # Nível 3 fica habilitado se Nível 2 tiver seleções
+    nivel3_disabled = not bool(nivel2_values)
+    
+    return nivel2_disabled, nivel3_disabled
+
+
+# Callback para limpar valores dos níveis inferiores quando superiores mudam
+@callback(
+    [Output('filter-b2b-hier-produto-2', 'value'),
+     Output('filter-b2b-hier-produto-3', 'value')],
+    [Input('filter-b2b-hier-produto-1', 'value'),
+     Input('filter-b2b-hier-produto-2', 'value')],
+    [State('filter-b2b-hier-produto-2', 'value'),
+     State('filter-b2b-hier-produto-3', 'value')],
+    prevent_initial_call=True
+)
+def clear_hierarchy_values_on_change(nivel1_values, nivel2_values, current_nivel2, current_nivel3):
+    """Limpa valores dos níveis inferiores quando níveis superiores mudam"""
+    ctx = dash.callback_context
+    
+    if not ctx.triggered:
+        return dash.no_update, dash.no_update
+    
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Se Nível 1 mudou, limpar Nível 2 e 3
+    if trigger_id == 'filter-b2b-hier-produto-1':
+        if not nivel1_values:  # Se Nível 1 foi limpo
+            return None, None
+        # Se Nível 1 mudou mas ainda tem valores, manter Nível 2 se compatível
+        return current_nivel2, None
+    
+    # Se Nível 2 mudou, limpar apenas Nível 3
+    elif trigger_id == 'filter-b2b-hier-produto-2':
+        if not nivel2_values:  # Se Nível 2 foi limpo
+            return dash.no_update, None
+        return dash.no_update, current_nivel3
+    
+    return dash.no_update, dash.no_update
 
 
 # =============================================================================
