@@ -3,9 +3,7 @@ Módulo de layouts da aplicação
 Integração com interface de chat para preparação do agente de IA
 """
 
-from dash import html, dcc, dash_table
-from dash.dash_table.Format import Format, Scheme
-from dash.dash_table import FormatTemplate
+from dash import html, dcc
 import dash_bootstrap_components as dbc
 from webapp.auth import require_login, create_user_info_component, create_login_layout
 from webapp.chat_interface import create_chat_interface
@@ -270,86 +268,9 @@ def create_clients_layout():
         
         # Tabela de KPIs por cliente
         html.Div([
-            dash_table.DataTable(
-                id="tabela-kpis-clientes",
-                columns=[
-                    {"name": "Código", "id": "cod_cliente", "type": "text"},
-                    {"name": "Cliente", "id": "cliente", "type": "text"},
-                    {"name": "Dias sem Compra", "id": "dias_sem_compra", "type": "numeric"},
-                    {"name": "Freq. Média (dias)", "id": "frequencia_media_compra", "type": "numeric"},
-                    {"name": "Mix Produtos", "id": "mix_produtos", "type": "numeric"},
-                    {"name": "% Mix", "id": "percentual_mix", "type": "numeric", "format": {"specifier": ".1f"}},
-                    {"name": "Cotados", "id": "produtos_cotados", "type": "numeric"},
-                    {"name": "Comprados", "id": "produtos_comprados", "type": "numeric"},
-                    {"name": "% Não Comprado", "id": "perc_nao_comprado", "type": "numeric", "format": {"specifier": ".1f"}},
-                    {"name": "UN", "id": "unidades_negocio", "type": "text"}
-                ],
-                data=[],
-                filter_action="native",
-                sort_action="native",
-                page_action="native",
-                page_current=0,
-                page_size=25,
-                row_selectable="multi",
-                selected_rows=[],
-                style_cell={
-                    'textAlign': 'left', 
-                    'fontSize': '12px',
-                    'fontFamily': 'Arial, sans-serif',
-                    'padding': '8px',
-                    'border': '1px solid #ddd'
-                },
-                style_header={
-                    'backgroundColor': '#f8f9fa',
-                    'fontWeight': 'bold',
-                    'color': '#333',
-                    'border': '1px solid #ddd',
-                    'textAlign': 'center'
-                },
-                style_data={
-                    'backgroundColor': '#ffffff',
-                    'color': '#333',
-                    'border': '1px solid #ddd'
-                },
-                style_data_conditional=[
-                    {
-                        'if': {'row_index': 'odd'},
-                        'backgroundColor': '#f8f9fa'
-                    },
-                    {
-                        'if': {'state': 'selected'},
-                        'backgroundColor': '#e3f2fd',
-                        'border': '1px solid #1976d2'
-                    },
-                    {
-                        'if': {'column_id': 'cod_cliente'},
-                        'fontWeight': 'bold',
-                        'width': '80px'
-                    },
-                    {
-                        'if': {'column_id': 'cliente'},
-                        'width': '200px'
-                    },
-                    {
-                        'if': {'filter_query': '{dias_sem_compra} > 730'},
-                        'backgroundColor': '#ffebee',
-                        'color': '#f5697e',
-                        'fontWeight': 'bold'
-                    },
-                    {
-                        'if': {'filter_query': '{dias_sem_compra} > 365 && {dias_sem_compra} <= 730'},
-                        'backgroundColor': '#fff8e1',
-                        'color': '#fac002',
-                        'fontWeight': 'bold'
-                    },
-                    {
-                        'if': {'filter_query': '{dias_sem_compra} <= 365'},
-                        'backgroundColor': '#e8f5e8',
-                        'color': '#456945',
-                        'fontWeight': 'bold'
-                    }
-                ]
-            )
+            html.Div(id="tabela-kpis-clientes-container", children=[
+                dbc.Alert("Carregando dados dos clientes...", color="info", className="text-center")
+            ])
         ], className="mb-4"),
         
         # Gráfico de status dos clientes
@@ -374,9 +295,31 @@ def create_products_layout():
                         html.H6("Filtros de Visualização", className="mb-3"),
                         dbc.Row([
                             dbc.Col([
-                                html.Label("Top Produtos:", className="small"),
-                                dbc.Input(id="filter-top-produtos", type="number", value=20, min=5, max=50)
-                            ], width=12)
+                                html.Label("Top Produtos:", className="small fw-bold"),
+                                dbc.Input(
+                                    id="filter-top-produtos", 
+                                    type="number", 
+                                    value=20, 
+                                    min=5, 
+                                    max=100,
+                                    size="sm"
+                                )
+                            ], width=4),
+                            dbc.Col([
+                                html.Label("Registros por página:", className="small fw-bold"),
+                                dcc.Dropdown(
+                                    id="table-page-size-produtos",
+                                    options=[
+                                        {"label": "10", "value": 10},
+                                        {"label": "25", "value": 25},
+                                        {"label": "50", "value": 50},
+                                        {"label": "100", "value": 100}
+                                    ],
+                                    value=25,
+                                    clearable=False,
+                                    style={'fontSize': '14px'}
+                                )
+                            ], width=4)
                         ])
                     ])
                 ])
@@ -411,14 +354,17 @@ def create_products_layout():
                     html.Label("Filtrar por Material:", className="small"),
                     dcc.Dropdown(
                         id="filter-material-table",
-                        placeholder="Todos os materiais",
+                        placeholder="🔍 Todos os materiais",
                         multi=True,
                         searchable=True,
                         clearable=True,
                         style={'fontSize': '14px'},
                         options=[]  # Será populado dinamicamente pelo callback
                     )
-                ], width=12, md=6),
+                ], width=12)
+            ], className="mb-3"),
+            
+            dbc.Row([
                 dbc.Col([
                     html.Label("Tamanho da página:", className="small"),
                     dcc.Dropdown(
@@ -445,71 +391,17 @@ def create_products_layout():
                 ], width=12, className="d-flex justify-content-start")
             ], className="mb-2"),
             
-            dash_table.DataTable(
-                id="tabela-analise-produtos",
-                columns=[
-                    {"name": "Material", "id": "material", "type": "text"},
-                    {"name": "Produto", "id": "produto", "type": "text"},
-                    {"name": "Hierarquia", "id": "hierarquia", "type": "text"},
-                    {"name": "Recorrência Compra", "id": "recorrencia_compra", "type": "numeric", "format": {"specifier": ",.0f"}},
-                    {"name": "Recorrência Cotação", "id": "recorrencia_cotacao", "type": "numeric", "format": {"specifier": ",.0f"}},
-                    {"name": "Taxa Conversão (%)", "id": "taxa_conversao", "type": "numeric", "format": {"specifier": ",.1f"}},
-                    {"name": "Qty Média Cotada", "id": "qty_media_cotada", "type": "numeric", "format": {"specifier": ",.2f"}},
-                    {"name": "Valor Médio", "id": "valor_medio", "type": "numeric", "format": FormatTemplate.money(2)},
-                    {"name": "Faturamento Total", "id": "faturamento_total", "type": "numeric", "format": FormatTemplate.money(2)}
-                ],
-                data=[],  # Dados serão carregados pelo callback
-                page_size=25,
-                page_action="native",
-                sort_action="native",
-                filter_action="native",
-                row_selectable="multi",
-                selected_rows=[],
-                style_cell={
-                    'textAlign': 'left',
-                    'fontSize': '12px',
-                    'fontFamily': 'Arial, sans-serif',
-                    'padding': '8px',
-                    'border': '1px solid #ddd'
-                },
-                style_header={
-                    'backgroundColor': '#f8f9fa',
-                    'fontWeight': 'bold',
-                    'color': '#333',
-                    'border': '1px solid #ddd',
-                    'textAlign': 'center'
-                },
-                style_data={
-                    'backgroundColor': '#ffffff',
-                    'color': '#333',
-                    'border': '1px solid #ddd'
-                },
-                style_data_conditional=[
-                    {
-                        'if': {'row_index': 'odd'},
-                        'backgroundColor': '#f8f9fa'
-                    },
-                    {
-                        'if': {'state': 'selected'},
-                        'backgroundColor': '#e3f2fd',
-                        'border': '1px solid #1976d2'
-                    },
-                    {
-                        'if': {'column_id': 'material'},
-                        'fontWeight': 'bold',
-                        'width': '100px'
-                    },
-                    {
-                        'if': {'column_id': 'produto'},
-                        'width': '200px'
-                    },
-                    {
-                        'if': {'column_id': 'hierarquia'},
-                        'width': '120px',
-                        'color': '#666'
-                    }
-                ]
-            )
+            # Container para tabela de produtos - será preenchido por callback
+            html.Div(id="tabela-analise-produtos-container", children=[
+                dbc.Card([
+                    dbc.CardBody([
+                        dbc.Spinner([
+                            html.H6("Carregando dados dos produtos...", className="text-muted mb-2"),
+                            html.P("Aguarde enquanto processamos as informações.", className="small text-muted")
+                        ], color="primary", type="border", spinnerClassName="text-center")
+                    ])
+                ], className="mb-4")
+            ])
         ], className="graph-container mb-4"),
         
         # Insights da IA
@@ -902,7 +794,7 @@ def get_layout(pathname):
         return create_main_layout()
     elif pathname == '/app/clients':
         return create_main_layout()
-    elif pathname == '/app/products':
+    elif pathname == '/app/products' or pathname == '/produtos':
         return create_main_layout()
     elif pathname == '/app/funnel':
         return create_main_layout()

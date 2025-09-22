@@ -24,6 +24,13 @@ from utils import (
 from utils.cache_manager import cached_dataframe, cached_result, cache_manager
 from utils.ai_framework import ai_analytics, SimpleNLPMatcher, UserInteractionLogger
 
+# Import callback de produtos com tratamento de erro robusto
+try:
+    import webapp.produtos_table_callback_new
+    print("✅ Callback DIRETO de produtos carregado!")
+except Exception as e:
+    print(f"⚠️ Erro ao carregar callback de produtos: {e}")
+
 # Instâncias globais para IA
 ai_logger = UserInteractionLogger()
 nlp_matcher = SimpleNLPMatcher()
@@ -790,7 +797,7 @@ def display_page_content(pathname):
             
             print("✅ Layout de clientes validado com sucesso")
             return layout
-        elif pathname == '/app/products':
+        elif pathname == '/app/products' or pathname == '/produtos':
             from webapp.layouts import create_products_layout
             from utils.component_validator import safe_component_return
             try:
@@ -2469,11 +2476,10 @@ def update_clients_status_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_h
      Input('global-filtro-canal', 'value'),
      Input('global-filtro-top-clientes', 'value'),  # CORREÇÃO: Usar filtro global
      Input('filter-top-produtos', 'value'),
-     Input('tabela-analise-produtos', 'derived_virtual_data'),  # Dados filtrados da tabela
      Input('url', 'pathname')],
     prevent_initial_call=False
 )
-def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, top_produtos, derived_virtual_data, pathname):
+def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, top_produtos, pathname):
     """Atualiza gráficos da página de produtos"""
     
     print(f"🚀 === UPDATE_PRODUCTS_CHARTS INICIADO ===")
@@ -2511,23 +2517,7 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
         stats = StatsCompat()
     
     print(f"🔄 UPDATE_PRODUCTS_CHARTS executado - pathname: {pathname}")
-    print(f"   Dados filtrados da tabela recebidos: {type(derived_virtual_data)}, qtd: {len(derived_virtual_data) if derived_virtual_data else 0}")
-    
-    # VALIDAÇÃO CRÍTICA: Verificar se derived_virtual_data é válido
-    if derived_virtual_data is not None:
-        if not isinstance(derived_virtual_data, list):
-            print(f"❌ derived_virtual_data não é uma lista: {type(derived_virtual_data)}")
-            derived_virtual_data = []
-        else:
-            # Verificar se os itens são dicionários válidos
-            valid_data = []
-            for i, item in enumerate(derived_virtual_data):
-                if isinstance(item, dict):
-                    valid_data.append(item)
-                else:
-                    print(f"❌ Item {i} em derived_virtual_data não é um dict: {type(item)}")
-            derived_virtual_data = valid_data
-            print(f"✅ derived_virtual_data validado: {len(derived_virtual_data)} itens válidos")
+    print(f"   Processando gráficos de produtos sem dependência de tabela")
     
     try:
         # Só processa se estiver na página de produtos
@@ -2753,7 +2743,11 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
                             colorbar=dict(
                                 title="Score de<br>Oportunidade",
                                 thickness=15,
-                                len=0.7
+                                len=0.5,
+                                x=1.02,
+                                y=1,
+                                xanchor="left",
+                                yanchor="top"
                             ),
                             sizemode='diameter',
                             sizemin=8,
@@ -3021,24 +3015,24 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
         empty_fig.update_layout(template='plotly_white', height=400)
         return empty_fig, empty_fig
 
-# Callbacks adicionais para tela de produtos
-@app.callback(
-    Output('tabela-analise-produtos', 'data'),
-    [Input('global-filtro-ano', 'value'),
-     Input('global-filtro-mes', 'value'),
-     Input('global-filtro-cliente', 'value'),
-     Input('global-filtro-hierarquia', 'value'),
-     Input('global-filtro-canal', 'value'),
-     Input('filter-material-table', 'value'),
-     Input('url', 'pathname')],
-    prevent_initial_call=False
-)
-def update_products_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, material_filter, pathname):
-    """Atualiza tabela de análise de produtos"""
-    print(f"🔄 UPDATE_PRODUCTS_TABLE executado - pathname: {pathname}")
-    print(f"   Material filter recebido: {material_filter} (tipo: {type(material_filter)})")
-    
-    try:
+# CALLBACK DESABILITADO - Tabela agora é gerenciada por produtos_table_callback.py
+# @app.callback(
+#     Output('tabela-analise-produtos', 'data'),
+#     [Input('global-filtro-ano', 'value'),
+#      Input('global-filtro-mes', 'value'),
+#      Input('global-filtro-cliente', 'value'),
+#      Input('global-filtro-hierarquia', 'value'),
+#      Input('global-filtro-canal', 'value'),
+#      Input('filter-material-table', 'value'),
+#      Input('url', 'pathname')],
+#     prevent_initial_call=False
+# )
+# def update_products_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, material_filter, pathname):
+#     """Atualiza tabela de análise de produtos"""
+#     print(f"🔄 UPDATE_PRODUCTS_TABLE executado - pathname: {pathname}")
+#     print(f"   Material filter recebido: {material_filter} (tipo: {type(material_filter)})")
+#     
+#     try:
         # Só processa se estiver na página de produtos
         if pathname and "/app/products" not in pathname and "products" not in pathname:
             print(f"❌ Não é página de produtos: {pathname}")
@@ -3191,48 +3185,50 @@ def update_products_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarq
         
     except Exception as e:
         print(f"❌ Erro em update_products_table: {e}")
-        import traceback
-        traceback.print_exc()
-        return []  # SEMPRE retornar lista vazia em caso de erro
+#         import traceback
+#         traceback.print_exc()
+#         return []  # SEMPRE retornar lista vazia em caso de erro
 
-@app.callback(
-    Output('tabela-analise-produtos', 'page_size'),
-    [Input('table-page-size-produtos', 'value')]
-)
-def update_products_page_size(page_size):
-    """Atualiza tamanho da página da tabela de produtos"""
-    return page_size or 25
+# CALLBACK DESABILITADO - ID 'tabela-analise-produtos' não existe no layout
+# @app.callback(
+#     Output('tabela-analise-produtos', 'page_size'),
+#     [Input('table-page-size-produtos', 'value')]
+# )
+# def update_products_page_size(page_size):
+#     """Atualiza tamanho da página da tabela de produtos"""
+#     return page_size or 25
 
-@app.callback(
-    Output('tabela-analise-produtos', 'selected_rows'),
-    [Input('btn-select-all-produtos', 'n_clicks'),
-     Input('btn-deselect-all-produtos', 'n_clicks')],
-    [State('tabela-analise-produtos', 'data')]
-)
-def update_products_selection(select_all, deselect_all, table_data):
-    """Controla seleção de linhas na tabela de produtos"""
-    try:
-        ctx = callback_context
-        if not ctx.triggered or not table_data:
-            return []
-        
-        # Validar que table_data é uma lista
-        if not isinstance(table_data, list):
-            print(f"❌ table_data não é uma lista: {type(table_data)}")
-            return []
-        
-        trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        
-        if trigger_id == 'btn-select-all-produtos':
-            return list(range(len(table_data)))
-        elif trigger_id == 'btn-deselect-all-produtos':
-            return []
-        
-        return []
-        
-    except Exception as e:
-        print(f"❌ Erro em update_products_selection: {e}")
-        return []
+# CALLBACK DESABILITADO - ID 'tabela-analise-produtos' não existe no layout  
+# @app.callback(
+#     Output('tabela-analise-produtos', 'selected_rows'),
+#     [Input('btn-select-all-produtos', 'n_clicks'),
+#      Input('btn-deselect-all-produtos', 'n_clicks')],
+#     [State('tabela-analise-produtos', 'data')]
+# )
+# def update_products_selection(select_all, deselect_all, table_data):
+#     """Controla seleção de linhas na tabela de produtos"""
+#     try:
+#         ctx = callback_context
+#         if not ctx.triggered or not table_data:
+#             return []
+#         
+#         # Validar que table_data é uma lista
+#         if not isinstance(table_data, list):
+#             print(f"❌ table_data não é uma lista: {type(table_data)}")
+#             return []
+#         
+#         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+#         
+#         if trigger_id == 'btn-select-all-produtos':
+#             return list(range(len(table_data)))
+#         elif trigger_id == 'btn-deselect-all-produtos':
+#             return []
+#         
+#         return []
+#         
+#     except Exception as e:
+#         print(f"❌ Erro em update_products_selection: {e}")
+#         return []
 
 @app.callback(
     [Output('tabela-kpis-clientes', 'filter_query')],
@@ -3291,31 +3287,33 @@ def update_clients_selection(select_all, deselect_all, table_data):
 
 
 
-@app.callback(
-    Output('download-csv-produtos', 'data'),
-    [Input('btn-download-csv-produtos', 'n_clicks')],
-    [State('tabela-analise-produtos', 'data')]
-)
-def download_products_csv(n_clicks, table_data):
-    """Download da tabela de produtos em CSV"""
-    if n_clicks and table_data:
-        import pandas as pd
-        df = pd.DataFrame(table_data)
-        return dcc.send_data_frame(df.to_csv, "produtos_analysis.csv", index=False)
-    return dash.no_update
+# CALLBACK DESABILITADO - ID 'tabela-analise-produtos' não existe no layout
+# @app.callback(
+#     Output('download-csv-produtos', 'data'),
+#     [Input('btn-download-csv-produtos', 'n_clicks')],
+#     [State('tabela-analise-produtos', 'data')]
+# )
+# def download_products_csv(n_clicks, table_data):
+#     """Download da tabela de produtos em CSV"""
+#     if n_clicks and table_data:
+#         import pandas as pd
+#         df = pd.DataFrame(table_data)
+#         return dcc.send_data_frame(df.to_csv, "produtos_analysis.csv", index=False)
+#     return dash.no_update
 
-@app.callback(
-    [Output('tabela-analise-produtos', 'filter_query'),
-     Output('filter-material-table', 'value')],
-    [Input('btn-clear-filters-produtos', 'n_clicks')]
-)
-def clear_products_filters(n_clicks):
-    """Limpa apenas os filtros internos da tabela de produtos e filtro de material (não os filtros globais)"""
-    if n_clicks:
-        print("🧹 Limpando filtros internos da tabela de produtos")
-        # Limpa filter_query da tabela e reseta filtro de material
-        return '', []  # filter_query vazio e material vazio
-    return dash.no_update, dash.no_update
+# CALLBACK DESABILITADO - ID 'tabela-analise-produtos' não existe no layout  
+# @app.callback(
+#     [Output('tabela-analise-produtos', 'filter_query'),
+#      Output('filter-material-table', 'value')],
+#     [Input('btn-clear-filters-produtos', 'n_clicks')]
+# )
+# def clear_products_filters(n_clicks):
+#     """Limpa apenas os filtros internos da tabela de produtos e filtro de material (não os filtros globais)"""
+#     if n_clicks:
+#         print("🧹 Limpando filtros internos da tabela de produtos")
+#         # Limpa filter_query da tabela e reseta filtro de material
+#         return '', []  # filter_query vazio e material vazio
+#     return dash.no_update, dash.no_update
 
 # ==========================================
 # CALLBACK PARA POPULAR OPÇÕES DE MATERIAL 
