@@ -11,6 +11,14 @@ from webapp import app
 from webapp.auth import authenticated_callback
 from utils.data_loader_fixed import DataLoaderFixed
 from utils import save_dataset, SecurityManager, get_current_user_id, get_latest_dataset
+from utils.db import (
+    get_data_statistics,
+    clear_vendas_data,
+    clear_cotacoes_data,
+    clear_materiais_data,
+    clear_all_data,
+)
+from datetime import datetime
 
 # Instâncias
 data_loader = DataLoaderFixed()
@@ -607,3 +615,151 @@ def handle_thresholds(pathname, save_clicks, current_inputs):
         return [], error_msg
 
 print("✅ Callbacks de upload registrados com sucesso")
+
+# ==========================
+# Configurações > Limpeza de Dados
+# ==========================
+
+# Exibe estatísticas iniciais e atualiza após confirmações
+@app.callback(
+    Output('data-stats', 'children'),
+    [
+        Input('url', 'pathname'),
+        Input('modal-confirm-vendas', 'n_clicks'),
+        Input('modal-confirm-cotacoes', 'n_clicks'),
+        Input('modal-confirm-materiais', 'n_clicks'),
+        Input('modal-confirm-all', 'n_clicks'),
+    ],
+)
+@authenticated_callback
+def update_data_stats(_pathname, nv, nc, nm, na):
+    try:
+        stats = get_data_statistics()
+        return dbc.Row([
+            dbc.Col(dbc.Badge(f"Vendas: {stats.get('vendas', 0)}", color="info", className="me-2"), width="auto"),
+            dbc.Col(dbc.Badge(f"Cotações: {stats.get('cotacoes', 0)}", color="primary", className="me-2"), width="auto"),
+            dbc.Col(dbc.Badge(f"Materiais: {stats.get('materiais', 0)}", color="secondary", className="me-2"), width="auto"),
+            dbc.Col(dbc.Badge(f"Datasets: {stats.get('datasets', 0)}", color="dark"), width="auto"),
+        ], className="g-2")
+    except Exception as e:
+        return dbc.Alert(f"❌ Erro ao obter estatísticas: {e}", color="danger")
+
+
+# Toggler dos modais de confirmação
+def _toggle_modal(open_clicks, cancel_clicks, confirm_clicks, is_open):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return is_open
+    trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+    if trigger.startswith('btn-clear-'):
+        return True
+    # Fecha modal em cancelamento ou confirmação
+    return False
+
+
+@app.callback(
+    Output('modal-confirm-clear-vendas', 'is_open'),
+    [Input('btn-clear-vendas', 'n_clicks'), Input('modal-cancel-vendas', 'n_clicks'), Input('modal-confirm-vendas', 'n_clicks')],
+    [State('modal-confirm-clear-vendas', 'is_open')],
+    prevent_initial_call=True,
+)
+@authenticated_callback
+def toggle_modal_vendas(open_clicks, cancel_clicks, confirm_clicks, is_open):
+    return _toggle_modal(open_clicks, cancel_clicks, confirm_clicks, is_open)
+
+
+@app.callback(
+    Output('modal-confirm-clear-cotacoes', 'is_open'),
+    [Input('btn-clear-cotacoes', 'n_clicks'), Input('modal-cancel-cotacoes', 'n_clicks'), Input('modal-confirm-cotacoes', 'n_clicks')],
+    [State('modal-confirm-clear-cotacoes', 'is_open')],
+    prevent_initial_call=True,
+)
+@authenticated_callback
+def toggle_modal_cotacoes(open_clicks, cancel_clicks, confirm_clicks, is_open):
+    return _toggle_modal(open_clicks, cancel_clicks, confirm_clicks, is_open)
+
+
+@app.callback(
+    Output('modal-confirm-clear-materiais', 'is_open'),
+    [Input('btn-clear-materiais', 'n_clicks'), Input('modal-cancel-materiais', 'n_clicks'), Input('modal-confirm-materiais', 'n_clicks')],
+    [State('modal-confirm-clear-materiais', 'is_open')],
+    prevent_initial_call=True,
+)
+@authenticated_callback
+def toggle_modal_materiais(open_clicks, cancel_clicks, confirm_clicks, is_open):
+    return _toggle_modal(open_clicks, cancel_clicks, confirm_clicks, is_open)
+
+
+@app.callback(
+    Output('modal-confirm-clear-all', 'is_open'),
+    [Input('btn-clear-all-data', 'n_clicks'), Input('modal-cancel-all', 'n_clicks'), Input('modal-confirm-all', 'n_clicks')],
+    [State('modal-confirm-clear-all', 'is_open')],
+    prevent_initial_call=True,
+)
+@authenticated_callback
+def toggle_modal_all(open_clicks, cancel_clicks, confirm_clicks, is_open):
+    return _toggle_modal(open_clicks, cancel_clicks, confirm_clicks, is_open)
+
+
+# Executa a limpeza quando os botões de confirmação são clicados e registra atividade
+@app.callback(
+    [Output('clear-data-status', 'children'), Output('activity-log', 'children')],
+    [
+        Input('modal-confirm-vendas', 'n_clicks'),
+        Input('modal-confirm-cotacoes', 'n_clicks'),
+        Input('modal-confirm-materiais', 'n_clicks'),
+        Input('modal-confirm-all', 'n_clicks'),
+    ],
+    [State('activity-log', 'children')],
+    prevent_initial_call=True,
+)
+@authenticated_callback
+def perform_data_cleanup(nv, nc, nm, na, current_log):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update, dash.no_update
+
+    trigger = ctx.triggered[0]['prop_id'].split('.')[0]
+    timestamp = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+
+    try:
+        if trigger == 'modal-confirm-vendas' and nv:
+            removed = clear_vendas_data()
+            alert = dbc.Alert(f"✅ Vendas limpas com sucesso ({removed} registros removidos)", color="success", duration=6000)
+            log_item = html.Div([html.Code(timestamp), html.Span(" • "), html.Span(f"Limpeza de Vendas: {removed} registros")])
+        elif trigger == 'modal-confirm-cotacoes' and nc:
+            removed = clear_cotacoes_data()
+            alert = dbc.Alert(f"✅ Cotações limpas com sucesso ({removed} registros removidos)", color="success", duration=6000)
+            log_item = html.Div([html.Code(timestamp), html.Span(" • "), html.Span(f"Limpeza de Cotações: {removed} registros")])
+        elif trigger == 'modal-confirm-materiais' and nm:
+            removed = clear_materiais_data()
+            alert = dbc.Alert(f"✅ Materiais limpos com sucesso ({removed} registros removidos)", color="success", duration=6000)
+            log_item = html.Div([html.Code(timestamp), html.Span(" • "), html.Span(f"Limpeza de Materiais: {removed} registros")])
+        elif trigger == 'modal-confirm-all' and na:
+            res = clear_all_data()
+            alert = dbc.Alert(
+                [
+                    html.Div("✅ Limpeza total concluída!"),
+                    html.Small(f"Vendas: {res['vendas']} • Cotações: {res['cotacoes']} • Materiais: {res['materiais']} • Datasets: {res['datasets']}")
+                ],
+                color="danger",
+                duration=8000,
+            )
+            log_item = html.Div([html.Code(timestamp), html.Span(" • "), html.Span(f"Limpeza TOTAL: {res['total']} registros")])
+        else:
+            return dash.no_update, dash.no_update
+
+        # Atualiza log (lista de itens)
+        if current_log is None:
+            current_log = []
+        if isinstance(current_log, list):
+            new_log = [log_item] + current_log
+        else:
+            new_log = [log_item, current_log]
+
+        return alert, new_log
+
+    except Exception as e:
+        error = dbc.Alert(f"❌ Erro ao limpar dados: {e}", color="danger", duration=8000)
+        return error, current_log
+

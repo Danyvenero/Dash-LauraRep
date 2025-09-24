@@ -2,6 +2,7 @@ import pandas as pd
 from typing import Tuple, Optional
 import sqlite3
 import os
+import re
 
 
 class DataLoaderFixed:
@@ -131,12 +132,30 @@ class DataLoaderFixed:
             except Exception as e:
                 print(f"❌ DEBUG: Erro ao normalizar cod_cliente: {str(e)}")
             
-            # Normaliza materiais
+            # Normaliza materiais (preserva zeros à esquerda e formatos mistos)
             try:
                 if 'material' in df_norm.columns:
-                    print(f"🔍 DEBUG: Normalizando material...")
-                    df_norm['material'] = pd.to_numeric(df_norm['material'], errors='coerce').fillna(0).astype(int).astype(str)
-                    print(f"🔍 DEBUG: material normalizado")
+                    print(f"🔍 DEBUG: Normalizando material (safe string)...")
+                    def _normalize_material_value(v):
+                        if pd.isna(v):
+                            return None
+                        s = str(v).strip()
+                        if s == '' or s.lower() in {'none', 'nan', 'n/a', 'null'}:
+                            return None
+                        if isinstance(v, (int,)):
+                            return str(v)
+                        if isinstance(v, float):
+                            s_float = f"{v:.15g}"
+                            s_float = re.sub(r"\.0+$", "", s_float)
+                            return s_float
+                        t = s.replace(' ', '')
+                        if re.fullmatch(r"\d+[\.,]0+", t):
+                            return re.split(r"[\.,]", t)[0]
+                        if re.fullmatch(r"\d+", t):
+                            return t
+                        return s.upper()
+                    df_norm['material'] = df_norm['material'].apply(_normalize_material_value)
+                    print(f"🔍 DEBUG: material normalizado (string safe)")
             except Exception as e:
                 print(f"❌ DEBUG: Erro ao normalizar material: {str(e)}")
             
@@ -472,10 +491,34 @@ class DataLoaderFixed:
             
             try:
                 if 'material' in df_norm.columns:
-                    # Trata valores None/vazios antes de converter
-                    df_norm['material'] = df_norm['material'].replace(['', 'None', 'none', 'NONE'], pd.NA)
-                    df_norm['material'] = pd.to_numeric(df_norm['material'], errors='coerce').fillna(0).astype(int).astype(str)
-                    print(f"🔍 DEBUG: material produtos cotados normalizado")
+                    # Normaliza o código do material preservando formatos não numéricos e zeros à esquerda
+                    def _normalize_material_value(v):
+                        if pd.isna(v):
+                            return None
+                        # Converte para string e limpa espaços
+                        s = str(v).strip()
+                        if s == '' or s.lower() in {'none', 'nan', 'n/a', 'null'}:
+                            return None
+                        # Se for inteiro/float do Excel (ex.: 12345.0), remove casas decimais
+                        if isinstance(v, (int,)):
+                            return str(v)
+                        if isinstance(v, float):
+                            # Formata sem notação científica e remove .0 finais
+                            s_float = f"{v:.15g}"
+                            s_float = re.sub(r"\.0+$", "", s_float)
+                            return s_float
+                        # Trata strings numéricas com .0 ou ,0
+                        t = s.replace(' ', '')
+                        if re.fullmatch(r"\d+[\.,]0+", t):
+                            return re.split(r"[\.,]", t)[0]
+                        # Mantém inteiros com zeros à esquerda
+                        if re.fullmatch(r"\d+", t):
+                            return t
+                        # Caso geral: mantém texto original, padronizando caixa alta
+                        return s.upper()
+
+                    df_norm['material'] = df_norm['material'].apply(_normalize_material_value)
+                    print(f"🔍 DEBUG: material produtos cotados normalizado (string safe)")
             except Exception as e:
                 print(f"❌ DEBUG: Erro ao normalizar material produtos cotados: {str(e)}")
             
