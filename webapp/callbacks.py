@@ -7,6 +7,7 @@ from dash import Input, Output, State, callback_context, dash_table, html, dcc
 import dash
 import pandas as pd
 import dash_bootstrap_components as dbc
+import logging
 from webapp import app
 from webapp.auth import authenticated_callback
 from utils import (
@@ -24,12 +25,22 @@ from utils import (
 from utils.cache_manager import cached_dataframe, cached_result, cache_manager
 from utils.ai_framework import ai_analytics, SimpleNLPMatcher, UserInteractionLogger
 
+# Logger local deste módulo
+logger = logging.getLogger(__name__)
+
 # Import callback de produtos com tratamento de erro robusto
 try:
     import webapp.produtos_table_callback_new
-    print("✅ Callback DIRETO de produtos carregado!")
+    logger.info("Callback de produtos carregado (produtos_table_callback_new)")
 except Exception as e:
-    print(f"⚠️ Erro ao carregar callback de produtos: {e}")
+    logger.warning(f"Erro ao carregar callback de produtos: {e}")
+
+# --- CÓDIGO DE TESTE DESATIVADO PARA REDUZIR RUÍDO DE LOG ---
+# try:
+#     import webapp.temp_test_callback
+#     logger.info("Callback de TESTE para a tabela de produtos carregado")
+# except ImportError:
+#     logger.debug("Callback de TESTE não encontrado (ok)")
 
 # Instâncias globais para IA
 ai_logger = UserInteractionLogger()
@@ -1200,15 +1211,12 @@ def create_gaps_analysis_content(analytics, df_vendas_filtrado=None, df_cotacoes
                                     size="sm",
                                     color="primary"
                                 )
-                            ], width="auto")
-                        ], className="mb-3"),
-                        
-                        html.Div(id="ml-suggestions-content")
+                            ])
+                        ])
                     ])
-                ])
+                ], width=12)
             ])
         ])
-        
     except Exception as e:
         return dbc.Alert(f"Erro ao gerar análise de gaps: {str(e)}", color="danger")
 
@@ -1835,7 +1843,7 @@ def create_temporal_evolution_chart(analytics, vendas_filtrado=None, filtros=Non
             ))
             
             fig.update_layout(
-                title="Evolução Temporal: Vendas vs Entrada (Dados Sintéticos)",
+                title="Evolução Temporal: Vendas vs Entrada de Pedidos",
                 xaxis_title="Período", yaxis_title="Valor (R$)",
                 height=400, template="plotly_white", showlegend=True
             )
@@ -1947,7 +1955,7 @@ def generate_ml_suggestions(n_clicks):
         suggestions_interface = html.Div([
             dbc.Alert([
                 html.I(className="fas fa-check-circle me-2"),
-                f"Análise ML concluída! {len(ml_suggestions)} sugestões geradas."
+                f"✅ {len(ml_suggestions)} sugestões geradas."
             ], color="success", className="mb-3"),
             
             # Controles de seleção
@@ -2570,8 +2578,7 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
             
             print(f"❌ Colunas obrigatórias faltando: {missing_cols}")
             fig_bolhas = go.Figure().add_annotation(
-                text=f"Colunas faltando: {', '.join(missing_cols)}", 
-                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+                text=f"Colunas faltando: {', '.join(missing_cols)}", xref="paper", yref="paper", x=0.5, y=0.5
             )
             fig_bolhas.update_layout(template='plotly_white', height=400)
         else:
@@ -2597,7 +2604,7 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
                 top_clientes = matriz_data.groupby('cliente')['vlr_rol'].sum().nlargest(num_top_clientes).index
                 top_produtos_viz = matriz_data.groupby(product_column)['vlr_rol'].sum().nlargest(top_n_produtos).index
                 
-                print(f"   📊 Top {num_top_clientes} clientes × Top {top_n_produtos} produtos selecionados")
+                print(f"   📊 Top {num_top_clientes} clientes × Top {top_n_produtos} Produtos selecionados")
                 
                 # Filtra a matriz final
                 matriz_filtered = matriz_data[
@@ -3034,258 +3041,158 @@ def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierar
 #     
 #     try:
         # Só processa se estiver na página de produtos
-        if pathname and "/app/products" not in pathname and "products" not in pathname:
-            print(f"❌ Não é página de produtos: {pathname}")
-            return []
-            
-        vendas_df = load_vendas_data()
-        cotacoes_df = load_cotacoes_data()
-        
-        if vendas_df.empty:
-            print("❌ Dados de vendas vazios")
-            return []
-        
-        # Aplica filtros
-        df_vendas_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                         filtro_hierarquia, filtro_canal, None)
-        df_cotacoes_filtrado = apply_filters(cotacoes_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                           filtro_hierarquia, filtro_canal, None)
-        
-        if df_vendas_filtrado.empty:
-            print("❌ Dados filtrados vazios")
-            return []
-        
-        # Analisa produtos
-        produtos_stats = df_vendas_filtrado.groupby(['material', 'produto']).agg({
-            'vlr_rol': ['sum', 'mean', 'count'],
-            'qtd_rol': 'mean'
-        }).reset_index()
-        
-        # Flatten columns
-        produtos_stats.columns = ['material', 'produto', 'faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada']
-        
-        # Adicionar hierarquia
-        if 'hier_produto_1' in df_vendas_filtrado.columns:
-            hierarquia_map = df_vendas_filtrado.groupby('produto')['hier_produto_1'].first().to_dict()
-            produtos_stats['hierarquia'] = produtos_stats['produto'].map(hierarquia_map).fillna('N/A')
-        else:
-            produtos_stats['hierarquia'] = 'N/A'
-        
-        # Calcular dados de cotação se disponível
-        if not df_cotacoes_filtrado.empty and 'produto' in df_cotacoes_filtrado.columns:
-            cotacoes_stats = df_cotacoes_filtrado.groupby('produto').size().to_dict()
-            produtos_stats['recorrencia_cotacao'] = produtos_stats['produto'].map(cotacoes_stats).fillna(0)
-            
-            # Taxa de conversão
-            produtos_stats['taxa_conversao'] = (produtos_stats['recorrencia_compra'] / produtos_stats['recorrencia_cotacao'] * 100).fillna(0)
-        else:
-            produtos_stats['recorrencia_cotacao'] = produtos_stats['recorrencia_compra'] * 1.5  # Simulado
-            produtos_stats['taxa_conversao'] = 65.0  # Simulado
-        
-        # Filtrar por material se selecionado - CORREÇÃO: Melhor tratamento de múltipla seleção
-        if material_filter and len(material_filter) > 0:
-            print(f"🔍 Aplicando filtro de material: {len(material_filter)} itens selecionados")
-            print(f"   Materiais: {material_filter}")
-            
-            # Criar lista de códigos de material a partir das strings completas
-            material_codes = []
-            for item in material_filter:
-                if isinstance(item, str) and ' - ' in item:
-                    # Extrair código do material (formato: "código - descrição")
-                    code = item.split(' - ')[0].strip()
-                    material_codes.append(code)
-                else:
-                    # Se já for só o código
-                    material_codes.append(str(item))
-            
-            print(f"   Códigos extraídos: {material_codes}")
-            
-            # Filtrar pelos códigos de material
-            produtos_stats = produtos_stats[produtos_stats['material'].astype(str).isin(material_codes)]
-            print(f"   Registros após filtro: {len(produtos_stats)}")
-        else:
-            print("🔍 Nenhum filtro de material aplicado")
-        
-        print(f"✅ Tabela de produtos gerada: {len(produtos_stats)} registros")
-        
-        # CORREÇÃO: Verificar se os dados são válidos antes de retornar
-        if produtos_stats.empty:
-            print("⚠️ produtos_stats está vazio após processamento")
-            return []
-        
-        result_data = produtos_stats.head(100).to_dict('records')
-        
-        # Validar e limpar dados antes do retorno
-        cleaned_data = []
-        for i, record in enumerate(result_data):
-            if not isinstance(record, dict):
-                print(f"❌ Registro {i} não é um dicionário válido: {type(record)}")
-                continue
-            
-            # Criar novo registro limpo
-            clean_record = {}
-            for key, value in record.items():
-                # Converter NaN, None e valores problemáticos
-                if value is None or (hasattr(value, '__iter__') and not isinstance(value, str) and len(str(value)) == 0):
-                    clean_record[key] = ""
-                elif hasattr(value, 'isna') and value.isna():
-                    clean_record[key] = 0 if key in ['faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao'] else ""
-                elif isinstance(value, (int, float)):
-                    # Verificar se é um número válido
-                    if str(value).lower() in ['nan', 'inf', '-inf']:
-                        clean_record[key] = 0 if key in ['faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao'] else ""
-                    else:
-                        clean_record[key] = float(value) if key in ['faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao'] else value
-                else:
-                    clean_record[key] = str(value) if value is not None else ""
-            
-            # Verificar se o registro tem as colunas obrigatórias
-            required_fields = ['material', 'produto', 'hierarquia', 'faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao']
-            
-            # Garantir que todos os campos obrigatórios existem
-            for field in required_fields:
-                if field not in clean_record:
-                    if field in ['faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao']:
-                        clean_record[field] = 0
-                    else:
-                        clean_record[field] = ""
-            
-            cleaned_data.append(clean_record)
-        
-        print(f"✅ Dados validados e limpos: {len(cleaned_data)} registros prontos para retorno")
-        
-        # VALIDAÇÃO FINAL: Garantir que é sempre uma lista válida
-        if not isinstance(cleaned_data, list):
-            print(f"❌ Resultado não é uma lista: {type(cleaned_data)}")
-            return []
-        
-        # Verificar se os itens da lista são dicionários válidos
-        validated_data = []
-        for i, item in enumerate(cleaned_data):
-            if isinstance(item, dict) and all(isinstance(k, str) for k in item.keys()):
-                validated_data.append(item)
-            else:
-                print(f"❌ Item {i} inválido: {type(item)}")
-        
-        # Log dos primeiros registros para debug
-        if validated_data:
-            print(f"🔍 Exemplo do primeiro registro: {list(validated_data[0].keys()) if validated_data[0] else 'vazio'}")
-        
-        # VALIDAÇÃO FINAL ROBUSTA: Garantir que os dados são serializáveis JSON
-        try:
-            import json
-            json.dumps(validated_data[:1])  # Testa serializabilidade do primeiro item
-            print("✅ Dados validados como serializáveis JSON")
-        except (TypeError, ValueError) as json_error:
-            print(f"❌ Dados não são serializáveis JSON: {json_error}")
-            # Retornar lista vazia em caso de erro de serialização
-            return []
-        
-        return validated_data
-        
-    except Exception as e:
-        print(f"❌ Erro em update_products_table: {e}")
-#         import traceback
-#         traceback.print_exc()
-#         return []  # SEMPRE retornar lista vazia em caso de erro
-
-# CALLBACK DESABILITADO - ID 'tabela-analise-produtos' não existe no layout
-# @app.callback(
-#     Output('tabela-analise-produtos', 'page_size'),
-#     [Input('table-page-size-produtos', 'value')]
-# )
-# def update_products_page_size(page_size):
-#     """Atualiza tamanho da página da tabela de produtos"""
-#     return page_size or 25
-
-# CALLBACK DESABILITADO - ID 'tabela-analise-produtos' não existe no layout  
-# @app.callback(
-#     Output('tabela-analise-produtos', 'selected_rows'),
-#     [Input('btn-select-all-produtos', 'n_clicks'),
-#      Input('btn-deselect-all-produtos', 'n_clicks')],
-#     [State('tabela-analise-produtos', 'data')]
-# )
-# def update_products_selection(select_all, deselect_all, table_data):
-#     """Controla seleção de linhas na tabela de produtos"""
-#     try:
-#         ctx = callback_context
-#         if not ctx.triggered or not table_data:
+#         if pathname and "/app/products" not in pathname and "products" not in pathname:
+#             print(f"❌ Não é página de produtos: {pathname}")
 #             return []
-#         
-#         # Validar que table_data é uma lista
-#         if not isinstance(table_data, list):
-#             print(f"❌ table_data não é uma lista: {type(table_data)}")
+            
+#         vendas_df = load_vendas_data()
+#         cotacoes_df = load_cotacoes_data()
+        
+#         if vendas_df.empty:
+#             print("❌ Dados de vendas vazios")
 #             return []
-#         
-#         trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-#         
-#         if trigger_id == 'btn-select-all-produtos':
-#             return list(range(len(table_data)))
-#         elif trigger_id == 'btn-deselect-all-produtos':
+        
+#         # Aplica filtros
+#         df_vendas_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
+#                                          filtro_hierarquia, filtro_canal, None, filtro_dias_sem_compra)
+#         df_cotacoes_filtrado = apply_filters(cotacoes_df, filtro_ano, filtro_mes, filtro_cliente, 
+#                                           filtro_hierarquia, filtro_canal, None, filtro_dias_sem_compra)
+        
+#         if df_vendas_filtrado.empty:
+#             print("❌ Dados filtrados vazios")
 #             return []
-#         
-#         return []
-#         
+        
+#         # Analisa produtos
+#         produtos_stats = df_vendas_filtrado.groupby(['material', 'produto']).agg({
+#             'vlr_rol': ['sum', 'mean', 'count'],
+#             'qtd_rol': 'mean'
+#         }).reset_index()
+        
+#         # Flatten columns
+#         produtos_stats.columns = ['material', 'produto', 'faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada']
+        
+#         # Adicionar hierarquia
+#         if 'hier_produto_1' in df_vendas_filtrado.columns:
+#             hierarquia_map = df_vendas_filtrado.groupby('produto')['hier_produto_1'].first().to_dict()
+#             produtos_stats['hierarquia'] = produtos_stats['produto'].map(hierarquia_map).fillna('N/A')
+#         else:
+#             produtos_stats['hierarquia'] = 'N/A'
+        
+#         # Calcular dados de cotação se disponível
+#         if not df_cotacoes_filtrado.empty and 'produto' in df_cotacoes_filtrado.columns:
+#             cotacoes_stats = df_cotacoes_filtrado.groupby('produto').size().to_dict()
+#             produtos_stats['recorrencia_cotacao'] = produtos_stats['produto'].map(cotacoes_stats).fillna(0)
+            
+#             # Taxa de conversão
+#             produtos_stats['taxa_conversao'] = (produtos_stats['recorrencia_compra'] / produtos_stats['recorrencia_cotacao'] * 100).fillna(0)
+#         else:
+#             produtos_stats['recorrencia_cotacao'] = produtos_stats['recorrencia_compra'] * 1.5  # Simulado
+#             produtos_stats['taxa_conversao'] = 65.0  # Simulado
+        
+#         # Filtrar por material se selecionado - CORREÇÃO: Melhor tratamento de múltipla seleção
+#         if material_filter and len(material_filter) > 0:
+#             print(f"🔍 Aplicando filtro de material: {len(material_filter)} itens selecionados")
+#             print(f"   Materiais: {material_filter}")
+            
+#             # Criar lista de códigos de material a partir das strings completas
+#             material_codes = []
+#             for item in material_filter:
+#                 if isinstance(item, str) and ' - ' in item:
+#                     # Extrair código do material (formato: "código - descrição")
+#                     code = item.split(' - ')[0].strip()
+#                     material_codes.append(code)
+#                 else:
+#                     # Se já for só o código
+#                     material_codes.append(str(item))
+            
+#             print(f"   Códigos extraídos: {material_codes}")
+            
+#             # Filtrar pelos códigos de material
+#             produtos_stats = produtos_stats[produtos_stats['material'].astype(str).isin(material_codes)]
+#             print(f"   Registros após filtro: {len(produtos_stats)}")
+#         else:
+#             print("🔍 Nenhum filtro de material aplicado")
+        
+#         print(f"✅ Tabela de produtos gerada: {len(produtos_stats)} registros")
+        
+#         # CORREÇÃO: Verificar se os dados são válidos antes de retornar
+#         if produtos_stats.empty:
+#             print("⚠️ produtos_stats está vazio após processamento")
+#             return []
+        
+#         result_data = produtos_stats.head(100).to_dict('records')
+        
+#         # Validar e limpar dados antes do retorno
+#         cleaned_data = []
+#         for i, record in enumerate(result_data):
+#             if not isinstance(record, dict):
+#                 print(f"❌ Registro {i} não é um dicionário válido: {type(record)}")
+#                 continue
+            
+#             # Criar novo registro limpo
+#             clean_record = {}
+#             for key, value in record.items():
+#                 # Converter NaN, None e valores problemáticos
+#                 if value is None or (hasattr(value, '__iter__') and not isinstance(value, str) and len(str(value)) == 0):
+#                     clean_record[key] = ""
+#                 elif hasattr(value, 'isna') and value.isna():
+#                     clean_record[key] = 0 if key in ['faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao'] else ""
+#                 elif isinstance(value, (int, float)):
+#                     # Verificar se é um número válido
+#                     if str(value).lower() in ['nan', 'inf', '-inf']:
+#                         clean_record[key] = 0 if key in ['faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao'] else ""
+#                     else:
+#                         clean_record[key] = float(value) if key in ['faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao'] else value
+#                 else:
+#                     clean_record[key] = str(value) if value is not None else ""
+            
+#             # Verificar se o registro tem as colunas obrigatórias
+#             required_fields = ['material', 'produto', 'hierarquia', 'faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao']
+            
+#             # Garantir que todos os campos obrigatórios existem
+#             for field in required_fields:
+#                 if field not in clean_record:
+#                     if field in ['faturamento_total', 'valor_medio', 'recorrencia_compra', 'qty_media_cotada', 'recorrencia_cotacao', 'taxa_conversao']:
+#                         clean_record[field] = 0
+#                     else:
+#                         clean_record[field] = ""
+            
+#             cleaned_data.append(clean_record)
+        
+#         print(f"✅ Dados validados e limpos: {len(cleaned_data)} registros prontos para retorno")
+        
+#         # VALIDAÇÃO FINAL: Garantir que é sempre uma lista válida
+#         if not isinstance(cleaned_data, list):
+#             print(f"❌ Resultado não é uma lista: {type(cleaned_data)}")
+#             return []
+        
+#         # Verificar se os itens da lista são dicionários válidos
+#         validated_data = []
+#         for i, item in enumerate(cleaned_data):
+#             if isinstance(item, dict) and all(isinstance(k, str) for k in item.keys()):
+#                 validated_data.append(item)
+#             else:
+#                 print(f"❌ Item {i} inválido: {type(item)}")
+        
+#         # Log dos primeiros registros para debug
+#         if validated_data:
+#             print(f"🔍 Exemplo do primeiro registro: {list(validated_data[0].keys()) if validated_data[0] else 'vazio'}")
+        
+#         # VALIDAÇÃO FINAL ROBUSTA: Garantir que os dados são serializáveis JSON
+#         try:
+#             import json
+#             json.dumps(validated_data[:1])  # Testa serializabilidade do primeiro item
+#             print("✅ Dados validados como serializáveis JSON")
+#         except (TypeError, ValueError) as json_error:
+#             print(f"❌ Dados não são serializáveis JSON: {json_error}")
+#             # Retornar lista vazia em caso de erro de serialização
+#             return []
+        
+#         return validated_data
+        
 #     except Exception as e:
-#         print(f"❌ Erro em update_products_selection: {e}")
+#         print(f"❌ Erro em update_products_table: {e}")
 #         return []
-
-@app.callback(
-    [Output('tabela-kpis-clientes', 'filter_query')],
-    [Input('btn-clear-filters-clientes', 'n_clicks')]
-)
-def clear_clients_filters(n_clicks):
-    """Limpa apenas os filtros internos da tabela de clientes (não os filtros globais)"""
-    if n_clicks:
-        print("🧹 Limpando filtros internos da tabela de clientes")
-        # Limpa apenas o filter_query da tabela, mantendo filtros globais
-        return ['']
-    return dash.no_update
-
-@app.callback(
-    Output('download-csv-clientes', 'data'),
-    [Input('btn-download-csv-clientes', 'n_clicks')],
-    [State('tabela-kpis-clientes', 'data')]
-)
-def download_clients_csv(n_clicks, table_data):
-    """Download da tabela de clientes em CSV"""
-    if n_clicks and table_data:
-        import pandas as pd
-        df = pd.DataFrame(table_data)
-        return dcc.send_data_frame(df.to_csv, "clientes_analysis.csv", index=False)
-    return dash.no_update
-
-# Callbacks adicionais para tela de clientes
-@app.callback(
-    Output('tabela-kpis-clientes', 'page_size'),
-    [Input('table-page-size-clientes', 'value')]
-)
-def update_clients_page_size(page_size):
-    """Atualiza tamanho da página da tabela de clientes"""
-    return page_size or 5
-
-@app.callback(
-    Output('tabela-kpis-clientes', 'selected_rows'),
-    [Input('btn-select-all-clientes', 'n_clicks'),
-     Input('btn-deselect-all-clientes', 'n_clicks')],
-    [State('tabela-kpis-clientes', 'data')]
-)
-def update_clients_selection(select_all, deselect_all, table_data):
-    """Controla seleção de linhas na tabela de clientes"""
-    ctx = callback_context
-    if not ctx.triggered or not table_data:
-        return []
-    
-    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
-    if trigger_id == 'btn-select-all-clientes':
-        return list(range(len(table_data)))
-    elif trigger_id == 'btn-deselect-all-clientes':
-        return []
-    
-    return []
-
-
 
 # CALLBACK DESABILITADO - ID 'tabela-analise-produtos' não existe no layout
 # @app.callback(
@@ -3316,262 +3223,40 @@ def update_clients_selection(select_all, deselect_all, table_data):
 #     return dash.no_update, dash.no_update
 
 # ==========================================
-# CALLBACK PARA POPULAR OPÇÕES DE MATERIAL 
+# CALLBACK PARA POPULAR OPÇÕES DE MATERIAL (MOVIDO PARA produtos_table_callback_new.py)
 # ==========================================
 
-@app.callback(
-    Output('filter-material-table', 'options'),
-    [Input('url', 'pathname'),
-     Input('global-filtro-ano', 'value'),
-     Input('global-filtro-mes', 'value'),
-     Input('global-filtro-cliente', 'value'),
-     Input('global-filtro-hierarquia', 'value'),
-     Input('global-filtro-canal', 'value'),
-     Input('global-filtro-top-clientes', 'value')]
-)
-@authenticated_callback
-def update_material_options(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes):
-    """Atualiza as opções do filtro de material com base nos dados reais"""
-    
-    print(f"🔄 UPDATE_MATERIAL_OPTIONS executado - pathname: {pathname}")
-    
-    if pathname != "/app/products":
-        print(f"❌ Não é página de produtos: {pathname}")
-        return []
-    
-    try:
-        print("📊 Carregando dados de vendas para opções de material...")
-        
-        # Carregar dados de vendas
-        df_vendas = load_vendas_data()
-        if df_vendas is None or df_vendas.empty:
-            print("❌ Dados de vendas vazios")
-            return []
-        
-        print(f"✅ Dados carregados: {len(df_vendas)} registros")
-        print(f"📋 Colunas disponíveis: {df_vendas.columns.tolist()}")
-        
-        # Aplicar filtros globais para obter materiais relevantes
-        df_filtrado = apply_filters(
-            df_vendas, 
-            filtro_ano, 
-            filtro_mes, 
-            filtro_cliente, 
-            filtro_hierarquia, 
-            filtro_canal, 
-            filtro_top_clientes,
-            None  # filtro_dias_sem_compra
-        )
-        
-        if df_filtrado is None or df_filtrado.empty:
-            print("❌ Dados filtrados vazios")
-            return []
-        
-        print(f"✅ Dados filtrados: {len(df_filtrado)} registros")
-        
-        # Extrair materiais únicos dos dados filtrados
-        opcoes_material = []
-        
-        if 'material' in df_filtrado.columns:
-            # Verificar se existe coluna 'produto' ou similar
-            produto_col = None
-            for col in ['produto', 'desc_produto', 'descricao_produto', 'nome_produto', 'hier_produto_1', 'hier_produto_2', 'hier_produto_3']:
-                if col in df_filtrado.columns:
-                    produto_col = col
-                    break
-            
-            if produto_col:
-                # Formato "Material - Produto"
-                materiais_produtos = df_filtrado[['material', produto_col]].dropna()
-                materiais_produtos = materiais_produtos[
-                    (materiais_produtos['material'].notna()) & 
-                    (materiais_produtos[produto_col].notna()) &
-                    (materiais_produtos['material'] != '') &
-                    (materiais_produtos[produto_col] != '')
-                ]
-                
-                # Criar combinações únicas
-                combinacoes_unicas = materiais_produtos.drop_duplicates()
-                
-                print(f"📊 Combinações Material-Produto encontradas: {len(combinacoes_unicas)}")
-                
-                # Set para evitar duplicatas
-                opcoes_set = set()
-                
-                for _, row in combinacoes_unicas.iterrows():
-                    material = str(row['material'])
-                    produto = str(row[produto_col])
-                    
-                    if material != 'nan' and produto != 'nan' and material != 'N/A' and produto != 'N/A':
-                        # Formato: "Material - Produto"
-                        label = f"{material} - {produto}"
-                        # Adicionar tanto material quanto produto como valores possíveis
-                        opcoes_set.add((label, material))
-                        opcoes_set.add((label, produto))
-                
-                # Converter set para lista de dicionários
-                for label, value in opcoes_set:
-                    opcoes_material.append({
-                        'label': label,
-                        'value': value
-                    })
-                
-                # Remover duplicatas baseadas no label e ordenar
-                opcoes_material = list({opt['label']: opt for opt in opcoes_material}.values())
-                opcoes_material = sorted(opcoes_material, key=lambda x: x['label'])
-                
-            else:
-                # Fallback: Apenas materiais (comportamento original)
-                materiais_unicos = df_filtrado['material'].dropna().unique()
-                
-                print(f"📊 Materiais únicos encontrados: {len(materiais_unicos)}")
-                
-                for material in sorted(materiais_unicos):
-                    if material and str(material) != 'nan' and str(material) != 'N/A':
-                        opcoes_material.append({
-                            'label': str(material),
-                            'value': str(material)
-                        })
-            
-            print(f"✅ Opções de material criadas: {len(opcoes_material)} itens únicos")
-            if len(opcoes_material) > 0:
-                print(f"📋 Primeiras 5 opções: {[opt['label'] for opt in opcoes_material[:5]]}")
-            
-            return opcoes_material
-        
-        else:
-            print("⚠️ Coluna 'material' não encontrada nos dados")
-            return []
-            
-    except Exception as e:
-        print(f"❌ Erro ao carregar opções de material: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return []
+# @app.callback(
+#     Output('filter-material-table', 'options'),
+#     [Input('url', 'pathname'),
+#      Input('global-filtro-ano', 'value'),
+#      Input('global-filtro-mes', 'value'),
+#      Input('global-filtro-cliente', 'value'),
+#      Input('global-filtro-hierarquia', 'value'),
+#      Input('global-filtro-canal', 'value'),
+#      Input('global-filtro-unidade', 'value')],
+#     [State('global-filtro-representada', 'value')]
+# )
+# def update_material_filter_options_central(pathname, ano, mes, cliente, hierarquia, canal, unidade, representada):
+#     if pathname not in ['/app/products', '/produtos']:
+#         return dash.no_update
 
-# ==========================================
-# CALLBACKS PARA LIMPEZA DE DADOS
-# ==========================================
+#     try:
+#         # Lógica para carregar e filtrar os dados de vendas
+#         df_vendas = load_vendas_data(ano, mes, representada, cliente, hierarquia, canal, unidade)
+        
+#         if df_vendas.empty:
+#             return []
 
-@app.callback(
-    [Output('modal-confirm-clear-vendas', 'is_open'),
-     Output('modal-confirm-clear-cotacoes', 'is_open'),
-     Output('modal-confirm-clear-materiais', 'is_open'),
-     Output('modal-confirm-clear-all', 'is_open')],
-    [Input('btn-clear-vendas', 'n_clicks'),
-     Input('btn-clear-cotacoes', 'n_clicks'),
-     Input('btn-clear-materiais', 'n_clicks'),
-     Input('btn-clear-all-data', 'n_clicks'),
-     Input('modal-cancel-vendas', 'n_clicks'),
-     Input('modal-cancel-cotacoes', 'n_clicks'),
-     Input('modal-cancel-materiais', 'n_clicks'),
-     Input('modal-cancel-all', 'n_clicks')],
-    [State('modal-confirm-clear-vendas', 'is_open'),
-     State('modal-confirm-clear-cotacoes', 'is_open'),
-     State('modal-confirm-clear-materiais', 'is_open'),
-     State('modal-confirm-clear-all', 'is_open')],
-    prevent_initial_call=True
-)
-@authenticated_callback
-def toggle_clear_data_modals(btn_vendas, btn_cotacoes, btn_materiais, btn_all,
-                           cancel_vendas, cancel_cotacoes, cancel_materiais, cancel_all,
-                           modal_vendas_open, modal_cotacoes_open, modal_materiais_open, modal_all_open):
-    """Gerencia abertura e fechamento dos modais de confirmação"""
-    ctx = callback_context
-    if not ctx.triggered:
-        return False, False, False, False
-    
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
-    # Abrir modais
-    if button_id == 'btn-clear-vendas':
-        return True, False, False, False
-    elif button_id == 'btn-clear-cotacoes':
-        return False, True, False, False
-    elif button_id == 'btn-clear-materiais':
-        return False, False, True, False
-    elif button_id == 'btn-clear-all-data':
-        return False, False, False, True
-    
-    # Fechar modais (cancelar)
-    elif button_id == 'modal-cancel-vendas':
-        return False, modal_cotacoes_open, modal_materiais_open, modal_all_open
-    elif button_id == 'modal-cancel-cotacoes':
-        return modal_vendas_open, False, modal_materiais_open, modal_all_open
-    elif button_id == 'modal-cancel-materiais':
-        return modal_vendas_open, modal_cotacoes_open, False, modal_all_open
-    elif button_id == 'modal-cancel-all':
-        return modal_vendas_open, modal_cotacoes_open, modal_materiais_open, False
-    
-    return modal_vendas_open, modal_cotacoes_open, modal_materiais_open, modal_all_open
+#         # Obter materiais únicos e formatar para o dropdown
+#         materiais = sorted(df_vendas['Material'].unique())
+#         options = [{'label': material, 'value': material} for material in materiais]
+#         return options
 
-@app.callback(
-    Output('clear-data-status', 'children'),
-    [Input('modal-confirm-vendas', 'n_clicks'),
-     Input('modal-confirm-cotacoes', 'n_clicks'),
-     Input('modal-confirm-materiais', 'n_clicks'),
-     Input('modal-confirm-all', 'n_clicks')],
-    prevent_initial_call=True
-)
-@authenticated_callback
-def execute_data_clearing(confirm_vendas, confirm_cotacoes, confirm_materiais, confirm_all):
-    """Executa a limpeza de dados baseado na confirmação"""
-    from utils.db import clear_vendas_data, clear_cotacoes_data, clear_materiais_data, clear_all_data
-    import dash_bootstrap_components as dbc
-    
-    ctx = callback_context
-    if not ctx.triggered:
-        return ""
-    
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
-    try:
-        if button_id == 'modal-confirm-vendas':
-            count = clear_vendas_data()
-            print(f"🗑️ Limpeza de vendas: {count} registros removidos")
-            return dbc.Alert([
-                html.I(className="fas fa-check-circle me-2"),
-                f"✅ {count} registros de vendas foram removidos com sucesso!"
-            ], color="success", dismissable=True)
-            
-        elif button_id == 'modal-confirm-cotacoes':
-            count = clear_cotacoes_data()
-            print(f"🗑️ Limpeza de cotações: {count} registros removidos")
-            return dbc.Alert([
-                html.I(className="fas fa-check-circle me-2"),
-                f"✅ {count} registros de cotações foram removidos com sucesso!"
-            ], color="success", dismissable=True)
-            
-        elif button_id == 'modal-confirm-materiais':
-            count = clear_materiais_data()
-            print(f"🗑️ Limpeza de materiais: {count} registros removidos")
-            return dbc.Alert([
-                html.I(className="fas fa-check-circle me-2"),
-                f"✅ {count} registros de materiais cotados foram removidos com sucesso!"
-            ], color="success", dismissable=True)
-            
-        elif button_id == 'modal-confirm-all':
-            result = clear_all_data()
-            print(f"🗑️ Limpeza total: {result}")
-            return dbc.Alert([
-                html.I(className="fas fa-check-circle me-2"),
-                html.Div([
-                    html.P("✅ Limpeza total concluída com sucesso!", className="mb-2 fw-bold"),
-                    html.Ul([
-                        html.Li(f"Vendas: {result['vendas']} registros"),
-                        html.Li(f"Cotações: {result['cotacoes']} registros"),
-                        html.Li(f"Materiais: {result['materiais']} registros")
-                    ], className="mb-0")
-                ])
-            ], color="success", dismissable=True)
-            
-    except Exception as e:
-        print(f"❌ Erro na limpeza de dados: {str(e)}")
-        return dbc.Alert([
-            html.I(className="fas fa-exclamation-triangle me-2"),
-            f"❌ Erro ao limpar dados: {str(e)}"
-        ], color="danger", dismissable=True)
-    
-    return ""
+#     except Exception as e:
+#         print(f"Erro ao atualizar opções de material: {e}")
+#         return []
 
-print("✅ Callbacks principais registrados com sucesso")
+# =================================================================
+# CALLBACK PARA ATUALIZAR TABELA DE ANÁLISE DE PRODUTOS (Exemplo)
+# =================================================================

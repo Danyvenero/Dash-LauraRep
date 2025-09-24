@@ -67,6 +67,68 @@ def deduplicate_customers(df):
 # FUNÇÕES DE PADRONIZAÇÃO DE VENDAS
 # =======================================
 
+def ensure_canonical_sales_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Garante a existência de colunas canônicas mapeando sinônimos comuns.
+    Não remove colunas originais; cria aliases quando necessário.
+    Canonicals:
+      - 'vlr_rol': valor monetário da venda
+      - 'qtd_vendida': quantidade vendida
+      - 'material': código material
+      - 'produto': descrição do produto
+      - 'hier_produto_1': hierarquia/família
+    """
+    if df.empty:
+        return df
+
+    def first_present(candidates):
+        for c in candidates:
+            if c in df.columns:
+                return c
+        return None
+
+    mappings = {
+        'vlr_rol': [
+            'vlr_rol', 'valor_liquido', 'valor_faturamento', 'valor_total', 'vlr_total', 'valor'
+        ],
+        'qtd_vendida': [
+            'qtd_vendida', 'qtd_rol', 'quantidade', 'qtde', 'qty', 'qtd', 'qtd_venda',
+            'quantidade_vendida', 'qtd_itens', 'qtd_item'
+        ],
+        'material': [
+            'material', 'cod_material', 'codigo_material', 'item', 'sku', 'material_id'
+        ],
+        'produto': [
+            'produto', 'descricao_produto', 'nome_produto', 'produto_nome', 'descricao', 'produto_desc'
+        ],
+        'hier_produto_1': [
+            'hier_produto_1', 'hierarquia', 'hierarquia_produto', 'familia', 'categoria', 'linha'
+        ],
+    }
+
+    created = {}
+    try:
+        for canonical, candidates in mappings.items():
+            if canonical in df.columns:
+                continue
+            src = first_present(candidates)
+            if src and src != canonical:
+                df[canonical] = df[src]
+                created[canonical] = src
+
+        if created:
+            logger.info(f"🔤 Colunas canônicas criadas a partir de sinônimos: {created}")
+
+        # Tipagem numérica para medidas
+        if 'vlr_rol' in df.columns:
+            df['vlr_rol'] = pd.to_numeric(df['vlr_rol'], errors='coerce').fillna(0)
+        if 'qtd_vendida' in df.columns:
+            df['qtd_vendida'] = pd.to_numeric(df['qtd_vendida'], errors='coerce').fillna(0)
+
+        return df
+    except Exception as e:
+        logger.warning(f"⚠️ Falha ao normalizar colunas canônicas: {e}")
+        return df
+
 def ov_general_adjustments(df):
     """Ajustes gerais de padronização dos dados de vendas"""
     values_to_filter = ['CONTROLS', 'MOTORES INDUSTRIAIS',
@@ -465,6 +527,9 @@ def apply_vendas_standardization(df):
         df = ov_hierarquia_dois(df)
         df = ov_hierarquia_tres(df)
         df = deduplicate_customers(df)  # Deduplica clientes por código
+
+        # NOVO: Normalização de colunas canônicas (sinônimos)
+        df = ensure_canonical_sales_columns(df)
         
         logger.info(f"✅ Padronizações aplicadas. Shape final: {df.shape}")
         return df

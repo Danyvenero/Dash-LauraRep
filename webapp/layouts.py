@@ -4,6 +4,7 @@ Integração com interface de chat para preparação do agente de IA
 """
 
 from dash import html, dcc
+from dash import dash_table
 import dash_bootstrap_components as dbc
 from webapp.auth import require_login, create_user_info_component, create_login_layout
 from webapp.chat_interface import create_chat_interface
@@ -191,85 +192,79 @@ def create_main_layout():
 def create_overview_layout():
     """Cria layout da página de visão geral"""
     return html.Div([
-        # KPIs principais
-        dbc.Row([
-            dbc.Col([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.H4(id="kpi-entrada-pedidos", className="kpi-value text-primary"),
-                        html.P("Entrada de Pedidos", className="kpi-label"),
-                        html.P(id="kpi-entrada-variacao", className="kpi-change")
+            dbc.Row([
+                dbc.Col([
+                    html.Label("Filtrar por Material:", className="small"),
+                    dcc.Input(
+                        id="filter-material-search",
+                        type="text",
+                        placeholder="Digite para buscar (ex.: motor -disjuntor, code:1440, 14402)",
+                        style={'width': '100%', 'fontSize': '14px'}
+                    ),
+                    html.Div([
+                        html.A(
+                            "Como filtrar? Ver exemplos",
+                            id="material-search-help-toggle",
+                            n_clicks=0,
+                            className="small",
+                            style={"cursor": "pointer"}
+                        ),
+                        dbc.Collapse(
+                            dbc.Card(dbc.CardBody([
+                                html.Strong("Operadores suportados:"),
+                                html.Ul([
+                                    html.Li('\"frase exata\" — busca exatamente a frase'),
+                                    html.Li('−termo — exclui itens com o termo (ex.: -disjuntor)'),
+                                    html.Li('code:abc — só no código (material)'),
+                                    html.Li('desc:xyz — só na descrição (produto)'),
+                                    html.Li('^ini — começa com; fim$ — termina com'),
+                                    html.Li('a|b — OR (qualquer um); AND é implícito entre termos')
+                                ], className="mb-2"),
+                                html.Strong("Exemplos úteis:"),
+                                html.Ul([
+                                    html.Li('motor -disjuntor'),
+                                    html.Li('code:1440 desc:motor'),
+                                    html.Li('^mot tor$'),
+                                    html.Li('\"motor 1cv\" | \"motor 2cv\"'),
+                                ], className="mb-0")
+                            ]), className="mt-2"),
+                            id="material-search-help",
+                            is_open=False
+                        ),
+                        # (removido) checkbox 'Aplicar seleção do dropdown'
                     ])
-                ], className="kpi-card")
-            ], width=12, md=4),
-            dbc.Col([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.H4(id="kpi-valor-carteira", className="kpi-value text-secondary"),
-                        html.P("Valor Carteira", className="kpi-label"),
-                        html.P(id="kpi-carteira-variacao", className="kpi-change")
-                    ])
-                ], className="kpi-card")
-            ], width=12, md=4),
-            dbc.Col([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.H4(id="kpi-faturamento", className="kpi-value text-success"),
-                        html.P("Faturamento", className="kpi-label"),
-                        html.P(id="kpi-faturamento-variacao", className="kpi-change")
-                    ])
-                ], className="kpi-card")
-            ], width=12, md=4)
-        ], className="mb-4"),
-        
-        # KPIs por Unidade de Negócio
-        html.Div([
-            html.H5("Faturamento por Unidade de Negócio", className="mb-3"),
-            dbc.Row(id="kpis-unidades-negocio", className="mb-4")
-        ]),
-        
-        # Gráfico de evolução
-        html.Div([
-            html.H5("Evolução de Vendas", className="mb-3"),
-            dcc.Graph(id="grafico-evolucao-vendas")
-        ], className="graph-container")
-    ])
-
-@require_login
-def create_clients_layout():
-    """Cria layout da página de clientes"""
-    return html.Div([
-        # Controles da tabela
-        dbc.Row([
-            dbc.Col([
-                dbc.ButtonGroup([
-                    dbc.Button("📥 Download CSV", id="btn-download-csv-clientes", color="primary", outline=True),
-                    dbc.Button("✅ Selecionar Todos", id="btn-select-all-clientes", color="secondary", outline=True),
-                    dbc.Button("❌ Desmarcar Todos", id="btn-deselect-all-clientes", color="secondary", outline=True),
-                    dbc.Button("🗑️ Limpar Filtros", id="btn-clear-filters-clientes", color="warning", outline=True)
-                ])
-            ], width=12, md=8),
-            dbc.Col([
-                html.Label("Tamanho da página:", className="small"),
-                dcc.Dropdown(
-                    id="table-page-size-clientes",
-                    options=[
-                        {"label": "5", "value": 5},
-                        {"label": "10", "value": 10},
-                        {"label": "25", "value": 25},
-                        {"label": "50", "value": 50},
-                        {"label": "100", "value": 100}
-                    ],
-                    value=5,
-                    clearable=False
-                )
-            ], width=12, md=4)
-        ], className="mb-3"),
+                ], width=12)
+            ], className="mb-3"),
         
         # Tabela de KPIs por cliente
         html.Div([
             html.Div(id="tabela-kpis-clientes-container", children=[
-                dbc.Alert("Carregando dados dos clientes...", color="info", className="text-center")
+                dash_table.DataTable(
+                    id='tabela-kpis-clientes',
+                    columns=[
+                        {"name": "Código", "id": "cod_cliente"},
+                        {"name": "Cliente", "id": "cliente"},
+                        {"name": "Total Vendas", "id": "total_vendas", "type": "numeric", "format": {"specifier": ",.2f"}},
+                        {"name": "Primeira Compra", "id": "primeira_compra"},
+                        {"name": "Última Compra", "id": "ultima_compra"},
+                        {"name": "Freq. Compras", "id": "frequencia_compra", "type": "numeric"},
+                        {"name": "Dias sem Compra", "id": "dias_sem_compra", "type": "numeric"},
+                        {"name": "Mix Produtos", "id": "mix_produtos", "type": "numeric"},
+                        {"name": "% Mix", "id": "percentual_mix", "type": "numeric"},
+                        {"name": "Prod. Cotados", "id": "produtos_cotados", "type": "numeric"},
+                        {"name": "Prod. Comprados", "id": "produtos_comprados", "type": "numeric"},
+                        {"name": "% Não Comprado", "id": "perc_nao_comprado", "type": "numeric"}
+                    ],
+                    data=[],
+                    page_size=10,
+                    style_table={"overflowX": "auto"},
+                    filter_action="native",
+                    sort_action="native",
+                    sort_mode="multi",
+                    page_action="native",
+                    export_format="csv",
+                    export_headers="display"
+                )
             ])
         ], className="mb-4"),
         
@@ -287,85 +282,65 @@ def create_clients_layout():
 def create_products_layout():
     """Cria layout da página de produtos"""
     return html.Div([
-        # Controles
-        dbc.Row([
-            dbc.Col([
-                dbc.Card([
-                    dbc.CardBody([
-                        html.H6("Filtros de Visualização", className="mb-3"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.Label("Top Produtos:", className="small fw-bold"),
-                                dbc.Input(
-                                    id="filter-top-produtos", 
-                                    type="number", 
-                                    value=20, 
-                                    min=5, 
-                                    max=100,
-                                    size="sm"
-                                )
-                            ], width=4),
-                            dbc.Col([
-                                html.Label("Registros por página:", className="small fw-bold"),
-                                dcc.Dropdown(
-                                    id="table-page-size-produtos",
-                                    options=[
-                                        {"label": "10", "value": 10},
-                                        {"label": "25", "value": 25},
-                                        {"label": "50", "value": 50},
-                                        {"label": "100", "value": 100}
-                                    ],
-                                    value=25,
-                                    clearable=False,
-                                    style={'fontSize': '14px'}
-                                )
-                            ], width=4)
-                        ])
-                    ])
-                ])
-            ], width=12, md=8),
-            dbc.Col([
-                dbc.ButtonGroup([
-                    dbc.Button("📥 Download CSV", id="btn-download-csv-produtos", color="primary"),
-                    dbc.Button("📄 PDF por Cliente", id="btn-pdf-cliente", color="success"),
-                    dbc.Button("🚀 B2B Analytics", id="btn-b2b-redirect", 
-                             color="info", href="/app/b2b-advanced", external_link=True)
-                ], className="d-flex justify-content-end")
-            ], width=12, md=4, className="d-flex align-items-end justify-content-end")
-        ], className="mb-4"),
-        
-        # Gráfico de bolhas
-        html.Div([
-            html.H5("Matriz Clientes × Produtos", className="mb-3"),
-            dcc.Graph(id="grafico-bolhas-produtos")
-        ], className="graph-container mb-4"),
-        
-        # Gráfico de Pareto
-        html.Div([
-            html.H5("Análise de Pareto - Produtos", className="mb-3"),
-            dcc.Graph(id="grafico-pareto-produtos")
-        ], className="graph-container mb-4"),
-        
-        # Tabela de Análise de Produtos
+        # Tabela de Análise de Produtos (mover para antes dos gráficos)
         html.Div([
             html.H5("Análise Detalhada de Produtos", className="mb-3"),
             dbc.Row([
                 dbc.Col([
                     html.Label("Filtrar por Material:", className="small"),
-                    dcc.Dropdown(
-                        id="filter-material-table",
-                        placeholder="🔍 Todos os materiais",
-                        multi=True,
-                        searchable=True,
-                        clearable=True,
-                        style={'fontSize': '14px'},
-                        options=[]  # Será populado dinamicamente pelo callback
-                    )
+                    dcc.Input(
+                        id="filter-material-search",
+                        type="text",
+                        placeholder="Digite para buscar (ex.: motor -disjuntor, code:1440, 14402)",
+                        style={'width': '100%', 'fontSize': '14px'}
+                    ),
+                    html.Div([
+                        html.A(
+                            "Como filtrar? Ver exemplos",
+                            id="material-search-help-toggle",
+                            n_clicks=0,
+                            className="small",
+                            style={"cursor": "pointer"}
+                        ),
+                        dbc.Collapse(
+                            dbc.Card(dbc.CardBody([
+                                html.Strong("Operadores suportados:"),
+                                html.Ul([
+                                    html.Li('"frase exata" — busca exatamente a frase'),
+                                    html.Li('−termo — exclui itens com o termo (ex.: -disjuntor)'),
+                                    html.Li('code:abc — só no código (material)'),
+                                    html.Li('desc:xyz — só na descrição (produto)'),
+                                    html.Li('^ini — começa com; fim$ — termina com'),
+                                    html.Li('a|b — OR (qualquer um); AND é implícito entre termos')
+                                ], className="mb-2"),
+                                html.Strong("Exemplos úteis:"),
+                                html.Ul([
+                                    html.Li('motor -disjuntor'),
+                                    html.Li('code:1440 desc:motor'),
+                                    html.Li('^mot tor$'),
+                                    html.Li('"motor 1cv" | "motor 2cv"'),
+                                ], className="mb-0")
+                            ]), className="mt-2"),
+                            id="material-search-help",
+                            is_open=False
+                        ),
+                        # (removido) checkbox 'Aplicar seleção do dropdown'
+                    ])
                 ], width=12)
             ], className="mb-3"),
             
             dbc.Row([
+                # Limite de itens (vazio = todos)
                 dbc.Col([
+                    html.Label("Máx. de itens (opcional):", className="small"),
+                    dbc.Input(
+                        id="filter-top-produtos",
+                        type="number",
+                        value=None,
+                        placeholder="",
+                        style={"maxWidth": "220px"}
+                    ),
+                    html.Div(className="mt-2"),
                     html.Label("Tamanho da página:", className="small"),
                     dcc.Dropdown(
                         id="table-page-size-produtos",
@@ -375,9 +350,58 @@ def create_products_layout():
                             {"label": "50", "value": 50},
                             {"label": "100", "value": 100}
                         ],
-                        value=25
+                        value=25,
+                        clearable=False,
+                        style={"maxWidth": "220px"}
                     )
-                ], width=12, md=6)
+                ], width=12, md=3),
+                dbc.Col([
+                    html.Label("Pesos RFM (Recência / Frequência / Valor)", className="small"),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Small("Recência"),
+                            dcc.Slider(
+                                id="rfm-weight-r", min=0, max=100, step=5, value=40,
+                                marks={0: "0", 25: "25", 50: "50", 75: "75", 100: "100"},
+                                tooltip={"placement": "bottom", "always_visible": False},
+                                className="w-100"
+                            )
+                        ], width=12, md=4),
+                        dbc.Col([
+                            html.Small("Frequência"),
+                            dcc.Slider(
+                                id="rfm-weight-f", min=0, max=100, step=5, value=30,
+                                marks={0: "0", 25: "25", 50: "50", 75: "75", 100: "100"},
+                                tooltip={"placement": "bottom", "always_visible": False},
+                                className="w-100"
+                            )
+                        ], width=12, md=4),
+                        dbc.Col([
+                            html.Small("Valor"),
+                            dcc.Slider(
+                                id="rfm-weight-m", min=0, max=100, step=5, value=30,
+                                marks={0: "0", 25: "25", 50: "50", 75: "75", 100: "100"},
+                                tooltip={"placement": "bottom", "always_visible": False},
+                                className="w-100"
+                            )
+                        ], width=12, md=4)
+                    ]),
+                    html.Small("Dica: os pesos são normalizados para somarem 100% automaticamente.", className="text-muted"),
+                    html.Br(),
+                    html.Small(id="rfm-weights-display", className="text-muted")
+                ], width=12, md=9)
+            ], className="mb-3"),
+
+            # Botões de ação abaixo dos sliders RFM
+            dbc.Row([
+                dbc.Col([
+                    dbc.ButtonGroup([
+                        dbc.Button("📥 Download CSV", id="btn-download-csv-produtos", color="primary"),
+                        dbc.Button("📄 PDF por Cliente", id="btn-pdf-cliente", color="success"),
+                        dbc.Button("🚀 B2B Analytics", id="btn-b2b-redirect", 
+                                 color="info", href="/app/b2b-advanced", external_link=True)
+                    ], className="d-flex justify-content-end")
+                ], width=12, className="d-flex align-items-center justify-content-end")
             ], className="mb-3"),
             
             # Botões de controle da tabela
@@ -402,6 +426,18 @@ def create_products_layout():
                     ])
                 ], className="mb-4")
             ])
+        ], className="graph-container mb-4"),
+
+        # Gráfico de bolhas
+        html.Div([
+            html.H5("Matriz Clientes × Produtos", className="mb-3"),
+            dcc.Graph(id="grafico-bolhas-produtos")
+        ], className="graph-container mb-4"),
+        
+        # Gráfico de Pareto
+        html.Div([
+            html.H5("Análise de Pareto - Produtos", className="mb-3"),
+            dcc.Graph(id="grafico-pareto-produtos")
         ], className="graph-container mb-4"),
         
         # Insights da IA

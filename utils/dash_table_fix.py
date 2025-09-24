@@ -190,11 +190,11 @@ def create_optimized_products_layout():
                                 dbc.Col([
                                     dbc.Label("Top Produtos:", className="fw-bold"),
                                     dbc.Input(
-                                        id="filter-top-produtos", 
-                                        type="number", 
-                                        value=20, 
-                                        min=5, 
-                                        max=100,
+                                            id="filter-top-produtos", 
+                                            type="number", 
+                                            value=0, 
+                                            min=0, 
+                                            max=10000,
                                         className="mb-2"
                                     )
                                 ], width=6),
@@ -302,13 +302,13 @@ def create_optimized_products_layout():
                     dbc.Row([
                         dbc.Col([
                             dbc.Label("Filtrar por Material:", className="fw-bold"),
-                            dcc.Dropdown(
-                                id="filter-material-table",
-                                placeholder="🔍 Todos os materiais",
-                                multi=True,
-                                searchable=True,
-                                clearable=True,
-                                options=[]
+                            dcc.Input(
+                                id="filter-material-search",
+                                type="text",
+                                placeholder="Digite para buscar por código ou descrição (ex.: motor -disjuntor, 14402)",
+                                debounce=False,
+                                className="mb-2",
+                                style={"width": "100%"}
                             )
                         ], width=6),
                         dbc.Col([

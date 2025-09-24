@@ -1,13 +1,6 @@
 """
-Callback específico para Mix#         Input("url", "pathname")
-#     ],
-    prevent_initial_call=False
-)
-def update_produtos_table_with_filters(filter_materials, top_produtos, page_size, refresh_clicks, pathname):
-    """
-    #Carrega a tabela de produtos com filtros aplicados
-    """utos com tratamento de erro robusto
-Evita problemas de carregamento do dash_table componente
+Callback específico para produtos com tratamento de erro robusto.
+Evita problemas de carregamento do componente dash_table.
 """
 
 from dash import Input, Output, State, callback, html, dcc, dash_table
@@ -52,7 +45,7 @@ def update_produtos_table_with_filters(filter_materials, top_produtos, page_size
                    filter_materials, top_produtos, page_size)
         
         # Se não está na página de produtos, retorna placeholder
-        if pathname != "/produtos":
+        if pathname not in ["/produtos", "/app/products"]:
             print(f"⚠️ Não está na página de produtos: {pathname}")
             return html.Div([
                 dbc.Alert([
