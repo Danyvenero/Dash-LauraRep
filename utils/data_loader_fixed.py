@@ -427,6 +427,11 @@ class DataLoaderFixed:
                 'centro de fornecedor': 'centro_fornecedor',
                 'material': 'material',
                 'código material': 'material',
+                'codigo material': 'material',
+                'cod material': 'material',
+                'cód material': 'material',
+                'código do material': 'material',
+                'codigo do material': 'material',
                 'codigo_material': 'material',
                 'cod_material': 'material',
                 'descrição': 'descricao',
@@ -473,6 +478,18 @@ class DataLoaderFixed:
                 else:
                     print(f"🔍 DEBUG: Nenhuma renomeação aplicada para produtos cotados")
                     print(f"🔍 DEBUG: Colunas disponíveis: {list(df_norm.columns)}")
+                    # Fallback: tenta encontrar coluna de 'material' por regex quando não mapeada
+                    if 'material' not in df_norm.columns:
+                        for c in df_norm.columns:
+                            cname = c.strip().lower()
+                            # padrões comuns: 'cod material', 'codigo material', 'código material', 'cod. material'
+                            if re.search(r"^(cod(\.|igo)?|cód(\.)?|código)\s+do?\s*material$", cname) or \
+                               re.search(r"^cod\s*material$", cname) or \
+                               re.search(r"^codigo\s*material$", cname) or \
+                               re.search(r"^código\s*material$", cname):
+                                df_norm = df_norm.rename(columns={c: 'material'})
+                                print(f"🔍 DEBUG: Fallback regex renomeou '{c}' -> 'material'")
+                                break
                     
             except Exception as e:
                 print(f"❌ DEBUG: Erro no mapeamento produtos cotados: {str(e)}")
@@ -557,6 +574,7 @@ class DataLoaderFixed:
                     required_cols.append('cotacao')
                 if 'cod_cliente' in df_norm.columns:
                     required_cols.append('cod_cliente')
+                # material é desejável, mas se coluna existir exigimos valor
                 if 'material' in df_norm.columns:
                     required_cols.append('material')
                 

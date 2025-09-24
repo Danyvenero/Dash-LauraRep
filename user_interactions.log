@@ -19652,3 +19652,103 @@ Feature names seen at fit time, yet now missing:
 2025-09-24 15:37:48,754 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
 2025-09-24 15:37:48,755 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
 2025-09-24 15:37:48,757 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 15:46:05,305 - INFO - Callback de produtos (novo) sendo carregado
+2025-09-24 15:46:05,306 - INFO - Callback de produtos carregado (produtos_table_callback_new)
+2025-09-24 15:46:06,602 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 15:46:09,443 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 15:46:09,514 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 15:46:09,515 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 15:46:09,516 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 15:50:37,993 - INFO - Callback de produtos (novo) sendo carregado
+2025-09-24 15:50:37,995 - INFO - Callback de produtos carregado (produtos_table_callback_new)
+2025-09-24 15:50:39,526 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 15:50:42,273 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 15:50:42,354 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 15:50:42,355 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 15:50:42,356 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 15:51:59,004 - INFO - Callback de produtos (novo) sendo carregado
+2025-09-24 15:51:59,005 - INFO - Callback de produtos carregado (produtos_table_callback_new)
+2025-09-24 15:52:12,323 - INFO - Callback de produtos (novo) sendo carregado
+2025-09-24 15:52:12,324 - INFO - Callback de produtos carregado (produtos_table_callback_new)
+2025-09-24 15:52:12,671 - INFO - Dash is running on http://127.0.0.1:8050/
+
+2025-09-24 15:52:16,718 - INFO - Callback de produtos (novo) sendo carregado
+2025-09-24 15:52:16,719 - INFO - Callback de produtos carregado (produtos_table_callback_new)
+2025-09-24 15:52:24,177 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 15:52:28,260 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 15:52:28,370 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 15:52:28,371 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 15:52:28,373 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 15:53:13,709 - INFO - Callback de produtos (novo) sendo carregado
+2025-09-24 15:53:13,711 - INFO - Callback de produtos carregado (produtos_table_callback_new)
+2025-09-24 15:53:15,131 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 15:53:18,888 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 15:53:18,985 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 15:53:18,987 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 15:53:18,988 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 15:54:00,332 - INFO - Callback de produtos (novo) sendo carregado
+2025-09-24 15:54:00,333 - INFO - Callback de produtos carregado (produtos_table_callback_new)
+2025-09-24 15:54:00,820 - INFO - Callback executado com filtros: top=None, page_size=25
+2025-09-24 15:54:00,820 - INFO - Carregando tabela de produtos com filtros
+2025-09-24 15:54:10,241 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 15:54:14,080 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 15:54:14,179 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 15:54:14,180 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 15:54:14,181 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 15:54:15,075 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 15:54:18,016 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 15:54:18,099 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 15:54:18,100 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 15:54:18,101 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 15:54:18,755 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 15:54:18,930 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 15:54:24,729 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 15:54:25,061 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 15:54:25,066 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 15:54:25,079 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 15:54:25,229 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 15:54:25,331 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 15:54:25,331 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 15:54:25,332 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 15:54:25,492 - INFO - \U0001f527 Aplicando padronizações de cotações...
+2025-09-24 15:54:25,493 - INFO - \u2705 Padronizações aplicadas. Shape final: (15478, 9)
+2025-09-24 15:54:27,665 - INFO - Criando dash_table para 2241 produtos
+2025-09-24 15:54:36,989 - INFO - Callback executado com filtros: top=None, page_size=25
+2025-09-24 15:57:29,083 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 15:57:32,474 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 15:57:32,557 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 15:57:32,558 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 15:57:32,559 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 15:57:32,908 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 15:57:35,691 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 15:57:35,760 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 15:57:35,761 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 15:57:35,762 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 16:06:04,534 - INFO - Callback de produtos (novo) sendo carregado
+2025-09-24 16:06:04,535 - INFO - Callback de produtos carregado (produtos_table_callback_new)
+2025-09-24 16:06:04,716 - INFO - Dash is running on http://127.0.0.1:8050/
+
+2025-09-24 16:06:07,180 - INFO - Callback de produtos (novo) sendo carregado
+2025-09-24 16:06:07,181 - INFO - Callback de produtos carregado (produtos_table_callback_new)
+2025-09-24 16:06:20,444 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 16:06:23,179 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 16:06:23,258 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 16:06:23,259 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 16:06:23,260 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 16:07:54,745 - INFO - Callback de produtos (novo) sendo carregado
+2025-09-24 16:07:54,745 - INFO - Callback de produtos carregado (produtos_table_callback_new)
+2025-09-24 16:07:59,633 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 16:08:03,772 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 16:08:03,887 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 16:08:03,889 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 16:08:03,891 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 16:08:05,059 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 16:08:05,229 - INFO - \U0001f527 Aplicando padronizações de vendas...
+2025-09-24 16:08:13,207 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 16:08:13,556 - INFO - \U0001f527 Deduplicando clientes por código...
+2025-09-24 16:08:13,768 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 16:08:13,771 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 16:08:13,775 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)
+2025-09-24 16:08:13,882 - INFO - \u2705 0 códigos de cliente com múltiplos nomes foram unificados
+2025-09-24 16:08:13,883 - INFO - \U0001f524 Colunas canônicas criadas a partir de sinônimos: {'qtd_vendida': 'qtd_rol'}
+2025-09-24 16:08:13,884 - INFO - \u2705 Padronizações aplicadas. Shape final: (57038, 20)

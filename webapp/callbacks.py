@@ -2429,8 +2429,8 @@ def update_clients_status_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_h
             return fig
         
         if not status_counts.empty:
-            import plotly.express as px
-            
+            import plotly.graph_objects as go
+
             # Cores para cada status
             color_map = {
                 'Ativo': '#28a745',      # Verde
@@ -2438,24 +2438,28 @@ def update_clients_status_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_h
                 'Em Risco': '#fd7e14',   # Laranja
                 'Inativo': '#dc3545'     # Vermelho
             }
-            
-            fig = px.bar(
-                x=status_counts.index,
-                y=status_counts.values,
-                title="Distribuição de Status dos Clientes",
-                labels={'x': 'Status', 'y': 'Quantidade de Clientes'},
-                color=status_counts.index,
-                color_discrete_map=color_map
-            )
-            
+
+            categories = [str(s) for s in list(status_counts.index)]
+            values = [int(v) for v in list(status_counts.values)]
+            colors = [color_map.get(s, '#2c3e50') for s in categories]
+
+            if set(categories) - set(color_map.keys()):
+                print(f"⚠️ Status sem cor mapeada: {set(categories) - set(color_map.keys())}")
+
+            fig = go.Figure(data=[
+                go.Bar(x=categories, y=values, marker_color=colors)
+            ])
+
             fig.update_layout(
+                template='plotly_white',
+                title_text="Distribuição de Status dos Clientes",
                 height=400,
                 showlegend=False,
                 xaxis_title="Status do Cliente",
                 yaxis_title="Quantidade",
                 title_x=0.5
             )
-            
+
             print(f"✅ Gráfico de status gerado: {len(status_counts)} categorias")
             return fig
         else:
