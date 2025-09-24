@@ -192,50 +192,14 @@ def create_main_layout():
 def create_overview_layout():
     """Cria layout da página de visão geral"""
     return html.Div([
-            dbc.Row([
-                dbc.Col([
-                    html.Label("Filtrar por Material:", className="small"),
-                    dcc.Input(
-                        id="filter-material-search",
-                        type="text",
-                        placeholder="Digite para buscar (ex.: motor -disjuntor, code:1440, 14402)",
-                        style={'width': '100%', 'fontSize': '14px'}
-                    ),
-                    html.Div([
-                        html.A(
-                            "Como filtrar? Ver exemplos",
-                            id="material-search-help-toggle",
-                            n_clicks=0,
-                            className="small",
-                            style={"cursor": "pointer"}
-                        ),
-                        dbc.Collapse(
-                            dbc.Card(dbc.CardBody([
-                                html.Strong("Operadores suportados:"),
-                                html.Ul([
-                                    html.Li('\"frase exata\" — busca exatamente a frase'),
-                                    html.Li('−termo — exclui itens com o termo (ex.: -disjuntor)'),
-                                    html.Li('code:abc — só no código (material)'),
-                                    html.Li('desc:xyz — só na descrição (produto)'),
-                                    html.Li('^ini — começa com; fim$ — termina com'),
-                                    html.Li('a|b — OR (qualquer um); AND é implícito entre termos')
-                                ], className="mb-2"),
-                                html.Strong("Exemplos úteis:"),
-                                html.Ul([
-                                    html.Li('motor -disjuntor'),
-                                    html.Li('code:1440 desc:motor'),
-                                    html.Li('^mot tor$'),
-                                    html.Li('\"motor 1cv\" | \"motor 2cv\"'),
-                                ], className="mb-0")
-                            ]), className="mt-2"),
-                            id="material-search-help",
-                            is_open=False
-                        ),
-                        # (removido) checkbox 'Aplicar seleção do dropdown'
-                    ])
-                ], width=12)
-            ], className="mb-3"),
-        
+        # Placeholder simples para visão geral (pode ser expandido conforme necessário)
+        dbc.Alert("Selecione um menu para iniciar a análise.", color="light")
+    ])
+
+@require_login
+def create_clients_layout():
+    """Cria layout da página de clientes"""
+    return html.Div([
         # Tabela de KPIs por cliente
         html.Div([
             html.Div(id="tabela-kpis-clientes-container", children=[
@@ -267,13 +231,13 @@ def create_overview_layout():
                 )
             ])
         ], className="mb-4"),
-        
+
         # Gráfico de status dos clientes
         html.Div([
             html.H5("Distribuição de Status dos Clientes", className="mb-3"),
             dcc.Graph(id="grafico-status-clientes")
         ], className="graph-container"),
-        
+
         # Componente de download para clientes
         dcc.Download(id="download-csv-clientes")
     ])
