@@ -39,6 +39,17 @@ instance/
 *.sqlite
 *.pkl
 
+# Generated assets (icons, PDFs, exports)
+assets/icons/**
+!assets/icons/README.md
+assets/**/*.pdf
+exports/**
+reports/**
+output/**
+out/**
+tmp/**
+temp/**
+
 # Node/Assets (if generated)
 node_modules/
 
