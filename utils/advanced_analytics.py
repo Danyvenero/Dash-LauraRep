@@ -32,14 +32,19 @@ class AdvancedAnalytics:
     # MÉTODOS PRINCIPAIS PARA DASHBOARD
     # ==========================================
     
-    def calculate_opportunity_gaps(self, vendas_df: pd.DataFrame = None, cotacoes_df: pd.DataFrame = None) -> pd.DataFrame:
+    def calculate_opportunity_gaps(self, vendas_df: pd.DataFrame = None, cotacoes_df: pd.DataFrame = None, weights: Optional[Dict[str, float]] = None, penalty: Optional[Dict[str, float]] = None) -> pd.DataFrame:
         """
-        Análise de gaps de oportunidade
-        Analisa todos os produtos e identifica oportunidades baseado em padrões de compra
+        Análise de gaps de oportunidade (alinhada ao RFV de cotações e métricas de produto)
+        - Integra sinais de vendas e cotações (Q-RFV)
+        - Score 0..100 com pesos em gaps de frequência, recência e valor
+        - Penaliza vendas muito recentes e alta conversão (já converte bem)
+        - Potencial de receita calcula incremento estimado a partir de cotações não convertidas
         """
         # Usa DataFrames armazenados se não fornecidos
         vendas_data = vendas_df if vendas_df is not None else self.vendas_df
-        
+        cotacoes_data = cotacoes_df if cotacoes_df is not None else self.cotacoes_df
+
+        # Fallback se não houver dados de vendas
         if vendas_data is None or vendas_data.empty:
             return pd.DataFrame({
                 'produto': ['Produto A', 'Produto B', 'Produto C'],
@@ -49,39 +54,67 @@ class AdvancedAnalytics:
                 'potential_revenue': [80000, 40000, 120000],
                 'cliente_count': [10, 8, 15]
             })
-        
+
         print("🎯 Calculando gaps de oportunidade para todos os produtos")
-        print(f"🔍 Debug - Colunas disponíveis: {list(vendas_data.columns) if hasattr(vendas_data, 'columns') else 'N/A'}")
-        
+        print(f"🔍 Debug - Colunas Vendas: {list(vendas_data.columns) if hasattr(vendas_data, 'columns') else 'N/A'}")
+        if cotacoes_data is not None and hasattr(cotacoes_data, 'columns'):
+            print(f"🔍 Debug - Colunas Cotações: {list(cotacoes_data.columns)}")
+
         try:
-            # Verifica se existe coluna produto
-            produto_col = 'produto'
-            if produto_col not in vendas_data.columns:
-                # Tenta outras possibilidades
-                for col in ['material', 'item', 'cod_produto']:
-                    if col in vendas_data.columns:
-                        produto_col = col
+            # Helpers
+            def quantile_norm(s: pd.Series, invert: bool = False) -> pd.Series:
+                if s is None or len(s) == 0:
+                    return pd.Series([], dtype=float)
+                s_clean = pd.to_numeric(s, errors='coerce')
+                # Se todos NaN, retorna zeros
+                if s_clean.isna().all():
+                    return pd.Series([0.0] * len(s_clean), index=s_clean.index)
+                ranks = s_clean.rank(method='min', pct=True)
+                if invert:
+                    ranks = 1 - ranks
+                return ranks.fillna(0.0).clip(0, 1)
+
+            def monthly_mean_count(df: pd.DataFrame, date_col: Optional[str]) -> pd.DataFrame:
+                if df is None or df.empty or date_col is None or date_col not in df.columns:
+                    return pd.DataFrame({'material': [], 'monthly_mean': []})
+                tmp = df.copy()
+                tmp[date_col] = pd.to_datetime(tmp[date_col], errors='coerce')
+                tmp = tmp.dropna(subset=[date_col])
+                if tmp.empty:
+                    return pd.DataFrame({'material': [], 'monthly_mean': []})
+                tmp['year_month'] = tmp[date_col].dt.to_period('M')
+                counts = tmp.groupby(['material', 'year_month']).size().reset_index(name='cnt')
+                mean_counts = counts.groupby('material')['cnt'].mean().reset_index(name='monthly_mean')
+                return mean_counts
+
+            # Mapear colunas de chave e nomes
+            material_col = 'material' if 'material' in vendas_data.columns else None
+            if material_col is None:
+                for alt in ['codigo', 'cod_material', 'cd_material', 'item', 'cod_produto']:
+                    if alt in vendas_data.columns:
+                        material_col = alt
                         break
-                else:
-                    # Se não encontrar, cria dados sintéticos
-                    return pd.DataFrame({
-                        'produto': ['Produto Genérico'],
-                        'gap_score': [60.0],
-                        'gap_category': ['Médio'],
-                        'current_revenue': [100000],
-                        'potential_revenue': [150000],
-                        'cliente_count': [20]
-                    })
-            
-            # Detecta coluna de valor automaticamente
-            valor_col = None
-            for col in ['vlr_rol', 'valor_liquido', 'vlr_entrada', 'vlr_carteira']:
-                if col in vendas_data.columns:
-                    valor_col = col
-                    break
-            
+            produto_col = 'produto' if 'produto' in vendas_data.columns else None
+            if produto_col is None:
+                for alt in ['descricao', 'ds_produto', 'produto_desc', 'nome_produto']:
+                    if alt in vendas_data.columns:
+                        produto_col = alt
+                        break
+            if material_col is None and produto_col is None:
+                # Sem chaves reconhecíveis
+                return pd.DataFrame({
+                    'produto': ['Produto Genérico'],
+                    'gap_score': [60.0],
+                    'gap_category': ['Médio'],
+                    'current_revenue': [100000],
+                    'potential_revenue': [150000],
+                    'cliente_count': [20]
+                })
+
+            # Colunas de valor e data
+            valor_col = next((c for c in ['vlr_rol', 'valor_liquido', 'vlr_entrada', 'vlr_carteira'] if c in vendas_data.columns), None)
             if valor_col is None:
-                print("⚠️ Nenhuma coluna de valor encontrada, usando dados sintéticos")
+                print("⚠️ Nenhuma coluna de valor encontrada em vendas. Retornando exemplo sintético.")
                 return pd.DataFrame({
                     'produto': ['Produto A', 'Produto B', 'Produto C'],
                     'gap_score': [75.0, 45.0, 85.0],
@@ -90,55 +123,201 @@ class AdvancedAnalytics:
                     'potential_revenue': [200000, 120000, 250000],
                     'cliente_count': [15, 8, 20]
                 })
-            
-            print(f"🔍 Debug - Usando coluna de valor: {valor_col}")
-            
-            # Agrupa vendas por produto
-            produto_stats = vendas_data.groupby(produto_col).agg({
-                valor_col: ['sum', 'mean', 'count'],
-                'cod_cliente': 'nunique'
-            }).round(2)
-            
-            produto_stats.columns = ['receita_total', 'receita_media', 'vendas_count', 'cliente_count']
-            produto_stats = produto_stats.reset_index()
-            
-            # Calcula estatísticas gerais
-            receita_mean = produto_stats['receita_total'].mean()
-            receita_std = produto_stats['receita_total'].std()
-            
-            # Calcula gap score baseado em desvio padrão da receita
-            produto_stats['gap_score'] = np.where(
-                produto_stats['receita_total'] > 0,
-                ((produto_stats['receita_total'] - receita_mean) / receita_std * 25 + 50).clip(0, 100),
-                0
-            )
-            
-            # Calcula receita potencial (estimativa baseada no percentil 75)
-            receita_p75 = produto_stats['receita_total'].quantile(0.75)
-            produto_stats['potential_revenue'] = np.maximum(
-                produto_stats['receita_total'],
-                receita_p75 * produto_stats['cliente_count'] / produto_stats['cliente_count'].mean()
-            )
-            
-            # Categoriza gaps
-            produto_stats['gap_category'] = pd.cut(
-                produto_stats['gap_score'],
-                bins=[-np.inf, 25, 75, np.inf],
-                labels=['Baixo', 'Médio', 'Alto']
-            )
-            
-            # Renomeia colunas para output
-            resultado = produto_stats.rename(columns={
-                produto_col: 'produto',
-                'receita_total': 'current_revenue'
-            }).round(2)
-            
-            # Ordena por gap score
+            date_v_col = next((c for c in ['data_faturamento', 'data', 'data_venda'] if c in vendas_data.columns), None)
+
+            # Agregações de vendas por material (preferir material para chave estável)
+            key_col = material_col if material_col is not None else produto_col
+            vendas_data['_key'] = vendas_data[key_col]
+            vendas_data['_produto_name'] = vendas_data[produto_col] if produto_col in vendas_data.columns else vendas_data.get('produto', '')
+            vendas_data['_produto_name'] = vendas_data['_produto_name'].fillna('')
+
+            vendas_grp = vendas_data.groupby('_key').agg({
+                valor_col: 'sum',
+                'cod_cliente': 'nunique',
+            }).reset_index().rename(columns={valor_col: 'receita_total', 'cod_cliente': 'cliente_count'})
+
+            # Recorrência mensal de compras e recência
+            if date_v_col is not None:
+                vendas_tmp = vendas_data[['_key', date_v_col]].copy()
+                vendas_tmp[date_v_col] = pd.to_datetime(vendas_tmp[date_v_col], errors='coerce')
+                vendas_tmp = vendas_tmp.dropna(subset=[date_v_col])
+                # monthly mean
+                vm = vendas_tmp.copy(); vm['material'] = vm['_key']
+                v_month_mean = monthly_mean_count(vm, date_v_col)
+                # recency
+                v_ref = vendas_tmp[date_v_col].max()
+                v_last = vendas_tmp.groupby('_key')[date_v_col].max().reset_index()
+                v_last['v_recency_days'] = (v_ref - v_last[date_v_col]).dt.days
+            else:
+                v_month_mean = pd.DataFrame({'material': [], 'monthly_mean': []})
+                v_last = pd.DataFrame({'_key': [], 'v_recency_days': []})
+
+            vendas_grp = vendas_grp.merge(v_month_mean.rename(columns={'material': '_key', 'monthly_mean': 'v_recorrencia_mensal'}), on='_key', how='left')
+            vendas_grp = vendas_grp.merge(v_last[['_key', 'v_recency_days']], on='_key', how='left')
+
+            # Dados de cotações por material
+            quotes_grp = None
+            if cotacoes_data is not None and not cotacoes_data.empty:
+                quotes_df = cotacoes_data.copy()
+                # mapear colunas de material e produto
+                if 'material' not in quotes_df.columns and material_col:
+                    for alt in ['codigo', 'cod_material', 'cd_material', 'item', 'cod_produto']:
+                        if alt in quotes_df.columns:
+                            quotes_df = quotes_df.rename(columns={alt: 'material'})
+                            break
+                if 'material' not in quotes_df.columns and material_col is None and key_col:
+                    quotes_df['material'] = quotes_df[key_col] if key_col in quotes_df.columns else ''
+                if 'produto' not in quotes_df.columns and produto_col:
+                    for alt in ['descricao', 'ds_produto', 'produto_desc', 'nome_produto']:
+                        if alt in quotes_df.columns:
+                            quotes_df = quotes_df.rename(columns={alt: 'produto'})
+                            break
+
+                qval_col = next((c for c in ['valor_total', 'vlr_total', 'valor', 'vlr_cotado', 'vlr_rol'] if c in quotes_df.columns), None)
+                if qval_col is None:
+                    quotes_df['_proxy_val'] = 1.0
+                    qval_col = '_proxy_val'
+                qdate_col = next((c for c in ['data_cotacao', 'data_emissao', 'data'] if c in quotes_df.columns), None)
+
+                # Agregar cotações
+                quotes_df['_key'] = quotes_df['material'] if 'material' in quotes_df.columns else quotes_df.get(key_col, '')
+                # Usar named aggregation para evitar conflito de nomes ao resetar índice
+                quotes_grp = (
+                    quotes_df.groupby('_key')
+                    .agg(
+                        valor_cotado_total=(qval_col, 'sum'),
+                        q_recorrencia_total=(qval_col, 'count')  # contar linhas por chave
+                    )
+                    .reset_index()
+                )
+
+                # Recorrência mensal e recência de cotações
+                if qdate_col is not None:
+                    qtmp = quotes_df[['_key', qdate_col]].copy()
+                    qtmp[qdate_col] = pd.to_datetime(qtmp[qdate_col], errors='coerce')
+                    qtmp = qtmp.dropna(subset=[qdate_col])
+                    qm = qtmp.copy(); qm['material'] = qm['_key']
+                    q_month_mean = monthly_mean_count(qm, qdate_col)
+                    q_ref = qtmp[qdate_col].max()
+                    q_last = qtmp.groupby('_key')[qdate_col].max().reset_index()
+                    q_last['q_recency_days'] = (q_ref - q_last[qdate_col]).dt.days
+                else:
+                    q_month_mean = pd.DataFrame({'material': [], 'monthly_mean': []})
+                    q_last = pd.DataFrame({'_key': [], 'q_recency_days': []})
+
+                quotes_grp = quotes_grp.merge(q_month_mean.rename(columns={'material': '_key', 'monthly_mean': 'q_recorrencia_mensal'}), on='_key', how='left')
+                quotes_grp = quotes_grp.merge(q_last[['_key', 'q_recency_days']], on='_key', how='left')
+
+            # Merge vendas + cotações
+            base = vendas_grp.copy()
+            if quotes_grp is not None and not quotes_grp.empty:
+                base = base.merge(quotes_grp, on='_key', how='left')
+            else:
+                base['valor_cotado_total'] = 0.0
+                base['q_recorrencia_total'] = 0.0
+                base['q_recorrencia_mensal'] = 0.0
+                base['q_recency_days'] = np.nan
+
+            # Normalizações (0..1)
+            v_r_norm = quantile_norm(base['v_recency_days'].fillna(base['v_recency_days'].max() if base['v_recency_days'].notna().any() else 0), invert=True)
+            v_f_norm = quantile_norm(base['v_recorrencia_mensal'].fillna(0))
+            v_m_norm = quantile_norm(base['receita_total'].fillna(0))
+            q_r_norm = quantile_norm(base['q_recency_days'].fillna(base['q_recency_days'].max() if base['q_recency_days'].notna().any() else 0), invert=True)
+            q_f_norm = quantile_norm(base['q_recorrencia_mensal'].fillna(0))
+            q_m_norm = quantile_norm(base['valor_cotado_total'].fillna(0))
+
+            # Gaps (0..1)
+            base['freq_gap'] = (q_f_norm - v_f_norm).clip(lower=0)
+            base['recency_gap'] = (q_r_norm - v_r_norm).clip(lower=0)
+            base['valor_gap'] = (q_m_norm - v_m_norm).clip(lower=0)
+
+            # Conversão por valor (0..1)
+            conv_val = (base['receita_total'] / base['valor_cotado_total'].replace(0, np.nan)).fillna(0).clip(0, 1.5)
+
+            # Score de prioridade a partir de Q-RFV (0..100)
+            # Pesos padrão (alinhados à semântica utilizada na página de produtos)
+            if weights and isinstance(weights, dict):
+                r_weight = float(weights.get('r', 0.3))
+                f_weight = float(weights.get('f', 0.4))
+                m_weight = float(weights.get('m', 0.3))
+                total_w = r_weight + f_weight + m_weight
+                if total_w > 0:
+                    r_weight, f_weight, m_weight = r_weight/total_w, f_weight/total_w, m_weight/total_w
+            else:
+                r_weight, f_weight, m_weight = 0.3, 0.4, 0.3
+            q_prioridade = ((r_weight * q_r_norm) + (f_weight * q_f_norm) + (m_weight * q_m_norm)) * 100.0
+
+            # Score de oportunidade (0..100)
+            alpha, beta, gamma = f_weight, r_weight, m_weight
+            o_base = (alpha * base['freq_gap'] + beta * base['recency_gap'] + gamma * base['valor_gap'])
+
+            # Parâmetros configuráveis de penalização/boost
+            conv_start = float((penalty or {}).get('conv_penalty_start', 0.6))  # 60% (em fração)
+            conv_span = float((penalty or {}).get('conv_penalty_span', 0.4))    # 40% (60→100)
+            conv_max = float((penalty or {}).get('conv_penalty_max', 0.4))      # intensidade máx
+            recent_max = float((penalty or {}).get('recent_penalty_max', 0.2))  # até 0.2
+            boost_max = float((penalty or {}).get('quote_priority_boost_max', 0.15))  # até 0.15
+
+            # Penalidades
+            penalty_recent_sales = (v_r_norm * recent_max)  # vendas muito recentes reduzem oportunidade
+            # penalização de conversão: começa a penalizar acima de conv_start e satura em conv_start+conv_span
+            penalty_high_conv = ((conv_val - conv_start).clip(lower=0) / max(conv_span, 1e-9)).clip(upper=1.0) * conv_max
+            boost_quote_priority = (q_prioridade / 100.0) * boost_max
+            o_final = (o_base * (1 - penalty_recent_sales) * (1 - penalty_high_conv)) * (1 + boost_quote_priority)
+            base['gap_score'] = (o_final.clip(lower=0, upper=1.5).clip(upper=1.0) * 100).round(2)
+            # guardar componentes para explicabilidade
+            base['penalty_recent_sales'] = penalty_recent_sales.round(4)
+            base['penalty_high_conv'] = penalty_high_conv.round(4)
+            base['v_recency_days'] = base.get('v_recency_days', np.nan)
+            base['conversion_rate'] = (conv_val.clip(0, 1.5) * 100).round(2)
+            # % não comprado por valor
+            base['nao_comprado_pct'] = (100 - base['conversion_rate']).clip(lower=0).round(2)
+
+            # Receita potencial: incremento estimado baseado em cotações não convertidas
+            incr = (base['valor_cotado_total'] * (1 - conv_val.clip(0, 1))).fillna(0)
+            momentum_floor = float((penalty or {}).get('momentum_floor', 0.5))  # mínimo do fator de momentum
+            # momentum cresce com a média dos gaps de freq/recência
+            momentum = (momentum_floor + (1 - momentum_floor) * ((base['freq_gap'] + base['recency_gap']) / 2)).clip(momentum_floor, 1.0)
+            estimated_incremental = (incr * momentum).fillna(0)
+            base['incremental_revenue'] = estimated_incremental.round(2)
+            base['potential_revenue'] = (base['receita_total'] + estimated_incremental).round(2)
+
+            # Categoria por faixas alinhadas à página de produtos
+            def cat_from_score(s: float) -> str:
+                if pd.isna(s):
+                    return 'Baixo'
+                if s >= 70:
+                    return 'Alto'
+                if s >= 40:
+                    return 'Médio'
+                return 'Baixo'
+            base['gap_category'] = base['gap_score'].apply(cat_from_score)
+
+            # Score base (sem penalidades) para comparação
+            gap_score_base = (o_base * (1 + boost_quote_priority)).clip(upper=1.0) * 100
+            base['gap_score_base'] = gap_score_base.round(2)
+
+            # Nome do produto para exibição
+            prod_map = vendas_data.groupby('_key')['_produto_name'].first().to_dict()
+            base['produto'] = base['_key'].map(prod_map).fillna(base['_key'])
+
+            resultado = base.rename(columns={
+                'receita_total': 'current_revenue',
+            })
+
+            # Ordenação natural por score
             resultado = resultado.sort_values('gap_score', ascending=False)
-            
+
             print(f"✅ Análise de gaps concluída - {len(resultado)} produtos analisados")
-            return resultado[['produto', 'gap_score', 'gap_category', 'current_revenue', 'potential_revenue', 'cliente_count']]
-            
+            # incluir colunas de explicabilidade; consumidores que não usam essas colunas serão indiferentes
+            cols = ['produto', 'gap_score', 'gap_score_base', 'gap_category', 'current_revenue', 'potential_revenue',
+                'incremental_revenue', 'cliente_count', 'v_recency_days', 'q_recency_days',
+                'conversion_rate', 'nao_comprado_pct', 'freq_gap', 'recency_gap', 'valor_gap',
+                'penalty_recent_sales', 'penalty_high_conv']
+            # filtrar apenas as que existem (robustez)
+            cols = [c for c in cols if c in resultado.columns]
+            return resultado[cols]
+
         except Exception as e:
             print(f"❌ Erro no cálculo de gaps: {e}")
             return pd.DataFrame({

@@ -5,11 +5,18 @@ Integração com interface de chat para preparação do agente de IA
 
 from dash import html, dcc
 from dash import dash_table
+import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
 from webapp.auth import require_login, create_user_info_component, create_login_layout
 from webapp.chat_interface import create_chat_interface
 from webapp.b2b_advanced_layout import create_advanced_b2b_layout
 from utils import is_authenticated
+from utils.table_styles import (
+    TABLE_STYLE_HEADER_PRIMARY,
+    TABLE_STYLE_CELL_DEFAULT,
+    TABLE_STYLE_TABLE_FULL_WIDTH,
+)
+from utils.aggrid_config import build_column_defs, default_col_def, default_grid_options
 import datetime
 
 def create_sidebar():
@@ -114,9 +121,10 @@ def create_sidebar():
                 dbc.Input(
                     id='global-filtro-top-clientes',
                     type="number",
-                    value=10,
+                    value=None,
                     min=1,
                     max=1500,
+                    placeholder="Todos",
                     className="mb-3"
                 )
             ], className="mb-3"),
@@ -193,44 +201,209 @@ def create_overview_layout():
     """Cria layout da página de visão geral"""
     return html.Div([
         # Placeholder simples para visão geral (pode ser expandido conforme necessário)
-        dbc.Alert("Selecione um menu para iniciar a análise.", color="light")
+            dbc.Alert("Selecione um menu para iniciar a análise.", color="light"),
+
+            # Gráfico de Pareto de Produtos (movido da página de Produtos)
+            html.Div([
+                html.H5("Análise de Pareto - Produtos", className="mb-3"),
+                dcc.Graph(id="grafico-pareto-produtos")
+            ], className="graph-container mb-4")
     ])
 
 @require_login
 def create_clients_layout():
     """Cria layout da página de clientes"""
     return html.Div([
+        # Controles superiores (RFV e paginação/exportação)
+        dbc.Row([
+            dbc.Col([
+                html.Label("Peso R (Recência)", className="small mb-1"),
+                dcc.Slider(id="slider-r-weight", min=0, max=1, step=0.05, value=0.33,
+                           tooltip={"always_visible": False}, marks=None)
+            ], md=4),
+            dbc.Col([
+                html.Label("Peso F (Frequência)", className="small mb-1"),
+                dcc.Slider(id="slider-f-weight", min=0, max=1, step=0.05, value=0.33,
+                           tooltip={"always_visible": False}, marks=None)
+            ], md=4),
+            dbc.Col([
+                html.Label("Peso M (Monetário)", className="small mb-1"),
+                dcc.Slider(id="slider-v-weight", min=0, max=1, step=0.05, value=0.34,
+                           tooltip={"always_visible": False}, marks=None)
+            ], md=4),
+        ], className="g-3 mb-3"),
+
+        # Tip text e exibição dos pesos normalizados (como na página de produtos)
+        dbc.Row([
+            dbc.Col([
+                html.Small("Dica: os pesos são normalizados para somarem 100% automaticamente.", className="text-muted"),
+                html.Br(),
+                html.Small(id="clients-rfv-weights-display", className="text-muted")
+            ], md=12)
+        ], className="mb-2"),
+
+        dbc.Row([
+            dbc.Col([
+                html.Label("Tamanho da página", className="small mb-1"),
+                dcc.Dropdown(
+                    id="clients-page-size",
+                    options=[
+                        {"label": "Todos", "value": "all"},
+                        {"label": "10", "value": 10},
+                        {"label": "25", "value": 25},
+                        {"label": "50", "value": 50},
+                        {"label": "100", "value": 100}
+                    ],
+                    value=10,
+                    clearable=False,
+                    style={"width": "120px"}
+                )
+            ], md=2),
+            dbc.Col([
+                html.Small(id="clients-counter", className="text-muted")
+            ], md=10, className="d-flex align-items-end")
+        ], className="mb-2"),
+
+        # Botões de controle e ação na mesma linha, alinhados pelas bases
+        dbc.Row([
+            dbc.Col([
+                dbc.ButtonGroup([
+                    dbc.Button("✅ Selecionar Todos", id="btn-select-all-clientes", color="secondary", outline=True, size="sm"),
+                    dbc.Button("❌ Desmarcar Todos", id="btn-deselect-all-clientes", color="secondary", outline=True, size="sm"),
+                    dbc.Button("�️ Limpar Filtros", id="btn-clear-filters-clientes", color="warning", outline=True, size="sm")
+                ])
+            ], md=6, className="d-flex justify-content-start"),
+            dbc.Col([
+                dbc.ButtonGroup([
+                    dbc.Button("📥 Exportar Excel", id="btn-export-excel-clientes", color="primary"),
+                    dbc.Button("📄 PDF por Cliente", id="btn-pdf-cliente-clientes", color="success"),
+                    dbc.Button("� B2B Analytics", id="btn-b2b-redirect-clientes", color="info", href="/app/b2b-advanced", external_link=True)
+                ])
+            ], md=6, className="d-flex justify-content-end")
+        ], className="mb-3 align-items-end"),
+
+        # Seleção de colunas visíveis (mesma UX da página de produtos)
+        dbc.Row([
+            dbc.Col([
+                html.Label("Colunas visíveis na tabela", className="mb-1 fw-semibold"),
+                dcc.Dropdown(
+                    id="clientes-column-select",
+                    multi=True,
+                    placeholder="Selecione as colunas (vazio = todas)",
+                    options=[
+                        {"label": "Código", "value": "cod_cliente"},
+                        {"label": "Cliente", "value": "cliente"},
+                        {"label": "RFV Score", "value": "rfv_score"},
+                        {"label": "RFV Classe", "value": "rfv_class"},
+                        {"label": "Total Vendas", "value": "total_vendas"},
+                        {"label": "Última Compra", "value": "ultima_compra"},
+                        {"label": "Freq. Compras", "value": "frequencia_compra"},
+                        {"label": "Freq. Média (dias)", "value": "frequencia_media_compra"},
+                        {"label": "Dias sem Compra", "value": "dias_sem_compra"},
+                        {"label": "Mix Produtos", "value": "mix_produtos"},
+                        {"label": "% Mix", "value": "percentual_mix"},
+                        {"label": "Prod. Cotados", "value": "produtos_cotados"},
+                        {"label": "Prod. Comprados", "value": "produtos_comprados"},
+                        {"label": "% Não Comprado", "value": "perc_nao_comprado"},
+                    ],
+                    style={"maxWidth": "100%"},
+                    clearable=True,
+                ),
+                html.Div([
+                    dbc.Button("Salvar preset de colunas", id="btn-save-clientes-col-preset", color="primary", outline=True, size="sm", className="mt-2 me-2"),
+                    dbc.Button("Reset para padrão", id="btn-reset-clientes-col-preset", color="secondary", outline=True, size="sm", className="mt-2 me-2"),
+                    html.Small("Dica: deixe vazio para exibir todas as colunas.", className="text-muted d-block mt-1")
+                ]),
+                dcc.Store(id="clientes-column-preset", storage_type="local")
+            ], width=12)
+        ], className="mb-2"),
+
         # Tabela de KPIs por cliente
         html.Div([
             html.Div(id="tabela-kpis-clientes-container", children=[
-                dash_table.DataTable(
+                dag.AgGrid(
                     id='tabela-kpis-clientes',
-                    columns=[
-                        {"name": "Código", "id": "cod_cliente"},
-                        {"name": "Cliente", "id": "cliente"},
-                        {"name": "Total Vendas", "id": "total_vendas", "type": "numeric", "format": {"specifier": ",.2f"}},
-                        {"name": "Primeira Compra", "id": "primeira_compra"},
-                        {"name": "Última Compra", "id": "ultima_compra"},
-                        {"name": "Freq. Compras", "id": "frequencia_compra", "type": "numeric"},
-                        {"name": "Dias sem Compra", "id": "dias_sem_compra", "type": "numeric"},
-                        {"name": "Mix Produtos", "id": "mix_produtos", "type": "numeric"},
-                        {"name": "% Mix", "id": "percentual_mix", "type": "numeric"},
-                        {"name": "Prod. Cotados", "id": "produtos_cotados", "type": "numeric"},
-                        {"name": "Prod. Comprados", "id": "produtos_comprados", "type": "numeric"},
-                        {"name": "% Não Comprado", "id": "perc_nao_comprado", "type": "numeric"}
-                    ],
-                    data=[],
-                    page_size=10,
-                    style_table={"overflowX": "auto"},
-                    filter_action="native",
-                    sort_action="native",
-                    sort_mode="multi",
-                    page_action="native",
-                    export_format="csv",
-                    export_headers="display"
+                    rowData=[],
+                    columnDefs=build_column_defs(
+                        [
+                            "cod_cliente",
+                            "cliente",
+                            "rfv_score",
+                            "rfv_class",
+                            "total_vendas",
+                            "ultima_compra",
+                            "frequencia_compra",
+                            "frequencia_media_compra",
+                            "dias_sem_compra",
+                            "mix_produtos",
+                            "percentual_mix",
+                            "produtos_cotados",
+                            "produtos_comprados",
+                            "perc_nao_comprado",
+                        ],
+                        numeric_cols=[
+                            "rfv_score",
+                            "total_vendas",
+                            "frequencia_compra",
+                            "frequencia_media_compra",
+                            "dias_sem_compra",
+                            "mix_produtos",
+                            "percentual_mix",
+                            "produtos_cotados",
+                            "produtos_comprados",
+                            "perc_nao_comprado",
+                        ],
+                        formats={
+                            "total_vendas": "currency",
+                            "percentual_mix": "percent",
+                            "perc_nao_comprado": "percent",
+                            "rfv_score": "int",
+                            "frequencia_compra": "int",
+                            "frequencia_media_compra": "int",
+                            "dias_sem_compra": "int",
+                            "mix_produtos": "int",
+                            "produtos_cotados": "int",
+                            "produtos_comprados": "int",
+                        },
+                        display_names={
+                            "cod_cliente": "Código",
+                            "cliente": "Cliente",
+                            "rfv_score": "RFV Score",
+                            "rfv_class": "RFV Classe",
+                            "total_vendas": "Total Vendas",
+                            "ultima_compra": "Última Compra",
+                            "frequencia_compra": "Freq. Compras",
+                            "frequencia_media_compra": "Freq. Média (dias)",
+                            "dias_sem_compra": "Dias sem Compra",
+                            "mix_produtos": "Mix Produtos",
+                            "percentual_mix": "% Mix",
+                            "produtos_cotados": "Prod. Cotados",
+                            "produtos_comprados": "Prod. Comprados",
+                            "perc_nao_comprado": "% Não Comprado",
+                        },
+                    ),
+                    defaultColDef=default_col_def(),
+                    dashGridOptions=default_grid_options(paginationPageSize=10),
+                    getRowStyle={
+                        "function": (
+                            "params => {"
+                            " const d = params && params.data ? params.data : {};"
+                            " const v = Number(d.dias_sem_compra);"
+                            " if (isNaN(v)) return null;"
+                            " if (v <= 30) return {backgroundColor:'rgba(40,167,69,0.12)', color:'#155724'};"
+                            " if (v > 30 && v <= 90) return {backgroundColor:'rgba(255,193,7,0.18)', color:'#7a6b00'};"
+                            " if (v > 90 && v <= 180) return {backgroundColor:'rgba(253,126,20,0.18)', color:'#7a3f00'};"
+                            " if (v > 180) return {backgroundColor:'rgba(220,53,69,0.18)', color:'#7a1e24'};"
+                            " return null;"
+                            " }"
+                        )
+                    },
+                    style={"width": "100%"}
                 )
             ])
-        ], className="mb-4"),
+    ], className="mb-4"),
+    # Store local para persistir estado do grid (Clientes)
+    dcc.Store(id="clientes-grid-state", storage_type="local"),
 
         # Gráfico de status dos clientes
         html.Div([
@@ -238,8 +411,22 @@ def create_clients_layout():
             dcc.Graph(id="grafico-status-clientes")
         ], className="graph-container"),
 
-        # Componente de download para clientes
-        dcc.Download(id="download-csv-clientes")
+        # Gráfico diagnóstico adicional
+        html.Div([
+            html.H5("Diagnóstico: % Não Comprado x % Mix", className="mb-3"),
+            dcc.Graph(id="grafico-clientes-diagnostico")
+        ], className="graph-container"),
+
+        # Gráfico de Pareto por Cliente
+        html.Div([
+            html.H5("Análise de Pareto - Clientes", className="mb-3"),
+            dcc.Graph(id="grafico-pareto-clientes")
+        ], className="graph-container"),
+
+        # Componentes de download para clientes
+        dcc.Download(id="download-csv-clientes"),
+        dcc.Download(id="download-xlsx-clientes"),
+        dcc.Download(id="download-pdf-clientes")
     ])
 
 @require_login
@@ -304,20 +491,6 @@ def create_products_layout():
                         placeholder="",
                         style={"maxWidth": "220px"}
                     ),
-                    html.Div(className="mt-2"),
-                    html.Label("Tamanho da página:", className="small"),
-                    dcc.Dropdown(
-                        id="table-page-size-produtos",
-                        options=[
-                            {"label": "10", "value": 10},
-                            {"label": "25", "value": 25},
-                            {"label": "50", "value": 50},
-                            {"label": "100", "value": 100}
-                        ],
-                        value=25,
-                        clearable=False,
-                        style={"maxWidth": "220px"}
-                    )
                 ], width=12, md=3),
                 dbc.Col([
                     html.Label("Pesos RFM (Recência / Frequência / Valor)", className="small"),
@@ -353,7 +526,28 @@ def create_products_layout():
                     html.Small("Dica: os pesos são normalizados para somarem 100% automaticamente.", className="text-muted"),
                     html.Br(),
                     html.Small(id="rfm-weights-display", className="text-muted")
-                ], width=12, md=9)
+                ], width=12, md=6),
+                # Nova coluna: janela de meses para cálculo de "Meses Cotados Sem Compra"
+                dbc.Col([
+                    html.Label("Janela (meses)", className="small"),
+                    dcc.Dropdown(
+                        id="produtos-meses-janela",
+                        options=[
+                            {"label": "6", "value": 6},
+                            {"label": "12", "value": 12},
+                            {"label": "18", "value": 18},
+                            {"label": "24", "value": 24},
+                            {"label": "36", "value": 36},
+                            {"label": "48", "value": 48},
+                            {"label": "60", "value": 60}
+                        ],
+                        value=12,
+                        clearable=False,
+                        style={"maxWidth": "220px"}
+                    ),
+                    html.Small("Define a janela temporal para 'Meses Cotados Sem Compra'.", className="text-muted")
+                ], width=12, md=3),
+                dbc.Col([], width=12, md=3)
             ], className="mb-3"),
 
             # Botões de ação abaixo dos sliders RFM
@@ -378,6 +572,53 @@ def create_products_layout():
                     ], className="mb-2")
                 ], width=12, className="d-flex justify-content-start")
             ], className="mb-2"),
+
+            # Seleção de colunas visíveis (persistente, fora do container substituído)
+            dbc.Row([
+                dbc.Col([
+                    html.Label("Colunas visíveis na tabela", className="mb-1 fw-semibold"),
+                    dcc.Dropdown(
+                        id="produtos-column-select",
+                        multi=True,
+                        placeholder="Selecione as colunas (vazio = todas)",
+                        options=[
+                            {"label": "Material", "value": "material"},
+                            {"label": "Produto", "value": "produto"},
+                            {"label": "Oportunidade", "value": "oportunidade_score"},
+                            {"label": "Status", "value": "status_oportunidade"},
+                            {"label": "Prioridade (Venda)", "value": "prioridade_score"},
+                            {"label": "Prioridade (Venda) Cat.", "value": "prioridade_venda_cat"},
+                            {"label": "Prioridade (Cotação)", "value": "q_prioridade_score"},
+                            {"label": "Prioridade (Cotação) Cat.", "value": "q_prioridade_cat"},
+                            {"label": "Recorrência/Mês (Vendas)", "value": "recorrencia_mensal"},
+                            {"label": "Recorrência Cotação/Mês", "value": "q_recorrencia_mensal"},
+                            {"label": "Recência (Venda) Dias", "value": "recency_days"},
+                            {"label": "Recência (Cotação) Dias", "value": "q_recency_days"},
+                            {"label": "Freq. Compra (Dias)", "value": "freq_media_compra_dias"},
+                            {"label": "Freq. Cotação (Dias)", "value": "freq_media_cotacao_dias"},
+                            {"label": "Obs. Freq. Compra", "value": "obs_freq_compra"},
+                            {"label": "Faturamento Total", "value": "faturamento_total"},
+                            {"label": "Valor Cotado Total", "value": "valor_cotado_total"},
+                            {"label": "Quantidade", "value": "quantidade_total"},
+                            {"label": "Qtd Cotada Total", "value": "qtd_cotada_total"},
+                            {"label": "Conversão Valor (%)", "value": "conversao_valor_percent"},
+                            {"label": "Gap Freq (%)", "value": "freq_gap_pct"},
+                            {"label": "Gap Recência (%)", "value": "recency_gap_pct"},
+                            {"label": "Gap Valor (%)", "value": "valor_gap_pct"},
+                            {"label": "Meses Cotados Sem Compra (janela)", "value": "meses_cotados_sem_compra"},
+                            {"label": "Qtd Comprada vs Cotada (%)", "value": "pct_qtd_comprada_vs_cotada"},
+                        ],
+                        style={"maxWidth": "100%"},
+                        clearable=True,
+                    ),
+                    html.Div([
+                        dbc.Button("Salvar preset de colunas", id="btn-save-col-preset", color="primary", outline=True, size="sm", className="mt-2 me-2"),
+                        dbc.Button("Reset para padrão", id="btn-reset-col-preset", color="secondary", outline=True, size="sm", className="mt-2 me-2"),
+                        html.Small("Dica: deixe vazio para exibir todas as colunas.", className="text-muted d-block mt-1")
+                    ]),
+                    dcc.Store(id="produtos-column-preset", storage_type="local")
+                ], width=12)
+            ], className="mb-2"),
             
             # Container para tabela de produtos - será preenchido por callback
             html.Div(id="tabela-analise-produtos-container", children=[
@@ -392,16 +633,61 @@ def create_products_layout():
             ])
         ], className="graph-container mb-4"),
 
+        # --- Oportunidades por Cliente (Onda A+B) ---
+        html.Div([
+            html.H5("Oportunidades por Cliente", className="mb-3"),
+            html.Small("Selecione exatamente um cliente no filtro global para personalizar as oportunidades.", className="text-muted d-block mb-2"),
+            dbc.Row([
+                dbc.Col([
+                    html.Label("Peso da Frequência nas Cotações (0 = só valor, 1 = só frequência)", className="small"),
+                    dcc.Slider(id="peso-freq-cotacao", min=0.0, max=1.0, step=0.1, value=0.5,
+                               tooltip={"always_visible": False}, className="w-100"),
+                    html.Small(id="opportunities-weight-hint", className="text-muted d-block mt-1")
+                ], md=4),
+                dbc.Col([
+                    html.Label("Filtrar por Motivo", className="small"),
+                    dcc.Dropdown(
+                        id="opportunities-bucket-filter",
+                        options=[
+                            {"label": "Todos", "value": "all"},
+                            {"label": "Cotou e não compra", "value": "Cotou e não compra"},
+                            {"label": "Mercado forte, cliente fora", "value": "Mercado forte, cliente fora"},
+                            {"label": "Baixa penetração", "value": "Baixa penetração"}
+                        ],
+                        value="all",
+                        clearable=False
+                    )
+                ], md=4),
+                dbc.Col([
+                    html.Label("Modo de Frequência", className="small"),
+                    dcc.RadioItems(
+                        id="opportunities-freq-mode",
+                        options=[
+                            {"label": "Ocorrências", "value": "occurrences"},
+                            {"label": "Ponderada por Quantidade", "value": "quantity"}
+                        ],
+                        value="occurrences",
+                        labelStyle={"marginRight": "12px"},
+                        inputStyle={"marginRight": "6px"},
+                        className="small"
+                    )
+                ], md=4)
+            ], className="mb-2"),
+            html.Div(id="opportunities-summary", className="text-muted mb-2"),
+            dag.AgGrid(
+                id='opportunities-table',
+                rowData=[],
+                columnDefs=[],
+                defaultColDef=default_col_def(),
+                dashGridOptions=default_grid_options(paginationPageSize=25),
+                style={"width": "100%"}
+            )
+        ], className="graph-container mb-4"),
+
         # Gráfico de bolhas
         html.Div([
             html.H5("Matriz Clientes × Produtos", className="mb-3"),
             dcc.Graph(id="grafico-bolhas-produtos")
-        ], className="graph-container mb-4"),
-        
-        # Gráfico de Pareto
-        html.Div([
-            html.H5("Análise de Pareto - Produtos", className="mb-3"),
-            dcc.Graph(id="grafico-pareto-produtos")
         ], className="graph-container mb-4"),
         
         # Insights da IA
@@ -409,7 +695,11 @@ def create_products_layout():
         
         # Componentes de download
         dcc.Download(id="download-csv-produtos"),
-        dcc.Download(id="download-pdf-produtos")
+        dcc.Download(id="download-pdf-produtos"),
+        # Store local para persistir estado do grid (Produtos)
+        dcc.Store(id="produtos-grid-state", storage_type="local"),
+        # Disparador inicial persistente (fora do container substituído pelo callback)
+        dcc.Interval(id="produtos-initial-trigger", interval=250, n_intervals=0, max_intervals=1)
     ])
 
 @require_login

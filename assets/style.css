@@ -398,6 +398,14 @@ div[class*="dropdown"] div {
     background-color: transparent !important;
 }
 
+/* Cursor pointer on interactive bars (Produtos distribuição) */
+#produtos-distribution .plotly .bar,
+#produtos-distribution .plotly .bars rect,
+#produtos-distribution .plotly .point {
+    cursor: pointer !important;
+}
+#produtos-priority-dist .bars, #produtos-priority-dist .point, #produtos-priority-dist .bar { cursor: pointer; }
+
 /* Placeholder do dropdown */
 .Select-placeholder {
     color: #999999 !important;

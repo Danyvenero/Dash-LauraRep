@@ -27,19 +27,18 @@ print("🔥 PRODUTOS TABLE CALLBACK FINAL SENDO CARREGADO!")
     [
         Input("filter-material-table", "value"),
         Input("filter-top-produtos", "value"), 
-        Input("table-page-size-produtos", "value"),
         Input("btn-refresh-produtos", "n_clicks"),
         Input("url", "pathname")
     ],
     prevent_initial_call=False
 )
-def update_produtos_table_with_filters(filter_materials, top_produtos, page_size, refresh_clicks, pathname):
+def update_produtos_table_with_filters(filter_materials, top_produtos, refresh_clicks, pathname):
     """
     Carrega a tabela de produtos com filtros aplicados e dados reais
     """
     try:
         print(f"🔥 CALLBACK DE PRODUTOS EXECUTADO! Pathname: {pathname}")
-        print(f"   Filtros: materials={filter_materials}, top={top_produtos}, page_size={page_size}")
+        print(f"   Filtros: materials={filter_materials}, top={top_produtos}")
         logger.info("Callback executado com filtros aplicados")
         
         # Se não está na página de produtos, retorna placeholder
@@ -57,8 +56,7 @@ def update_produtos_table_with_filters(filter_materials, top_produtos, page_size
         # Valores padrão para os filtros
         if top_produtos is None or top_produtos <= 0:
             top_produtos = 20
-        if page_size is None or page_size <= 0:
-            page_size = 25
+        page_size = 25
             
         # Carregar dados reais
         vendas_df = load_vendas_data()

@@ -689,6 +689,16 @@ def save_setting(key: str, value: Any):
     conn.commit()
     conn.close()
 
+def delete_setting(key: str):
+    """Remove uma configuração do banco (se existir)"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("DELETE FROM settings WHERE key = ?", (key,))
+        conn.commit()
+    finally:
+        conn.close()
+
 def verify_user(username: str, password: str) -> Optional[Dict]:
     """Verifica credenciais de usuário"""
     from werkzeug.security import check_password_hash

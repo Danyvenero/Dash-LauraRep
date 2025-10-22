@@ -167,6 +167,8 @@ def create_advanced_b2b_layout():
             ], width=8),
             dbc.Col([
                 dbc.ButtonGroup([
+                    dcc.Link(dbc.Button([html.I(className="fas fa-users me-1"), "Clientes"], color="secondary", size="sm"), href="/app/clients", className="me-2", refresh=True),
+                    dcc.Link(dbc.Button([html.I(className="fas fa-box-open me-1"), "Produtos"], color="secondary", size="sm"), href="/app/products", className="me-2", refresh=True),
                     dbc.Button([
                         html.I(className="fas fa-sync me-1"),
                         "Atualizar Dados"

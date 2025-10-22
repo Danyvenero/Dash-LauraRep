@@ -11,766 +11,23 @@ import logging
 from webapp import app
 from webapp.auth import authenticated_callback
 from utils import (
-    load_vendas_data, 
-    load_cotacoes_data, 
+    load_vendas_data,
+    load_cotacoes_data,
     load_produtos_cotados_data,
-    KPICalculator, 
-    VisualizationGenerator,
     AdvancedAnalytics,
-    SENTINEL_ALL
+    apply_filters,
+    determine_hierarchy_level,
+    get_setting,
+    save_setting,
+    delete_setting,
 )
+from utils.opportunity import compute_client_opportunities
+from utils.aggrid_config import build_column_defs, default_col_def, default_grid_options
 
-# Import callbacks da página de sugestões - REMOVIDO para evitar duplicação
-# import webapp.purchase_suggestions_callbacks  # ❌ COMENTADO - usando versão simplificada
-from utils.cache_manager import cached_dataframe, cached_result, cache_manager
-from utils.ai_framework import ai_analytics, SimpleNLPMatcher, UserInteractionLogger
+# OBS: As implementações de apply_filters e determine_hierarchy_level foram movidas para utils.filters
+# para servir como ponto único de verdade e evitar divergências entre módulos.
 
-# Logger local deste módulo
-logger = logging.getLogger(__name__)
-
-# Import callback de produtos com tratamento de erro robusto
-try:
-    import webapp.produtos_table_callback_new
-    logger.info("Callback de produtos carregado (produtos_table_callback_new)")
-except Exception as e:
-    logger.warning(f"Erro ao carregar callback de produtos: {e}")
-
-# --- CÓDIGO DE TESTE DESATIVADO PARA REDUZIR RUÍDO DE LOG ---
-# try:
-#     import webapp.temp_test_callback
-#     logger.info("Callback de TESTE para a tabela de produtos carregado")
-# except ImportError:
-#     logger.debug("Callback de TESTE não encontrado (ok)")
-
-# Instâncias globais para IA
-ai_logger = UserInteractionLogger()
-nlp_matcher = SimpleNLPMatcher()
-
-def apply_filters(df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra=None, metrica_type=None):
-    """Aplica todos os filtros ao DataFrame de vendas de forma otimizada
-    
-    Args:
-        metrica_type: 'entrada' para usar coluna 'data', 'faturamento' para usar 'data_faturamento', None para detectar automaticamente
-    """
-    print(f"🔍 APPLY_FILTERS iniciado - DataFrame original: {len(df)} registros")
-    print(f"   📊 Filtros recebidos:")
-    print(f"      • Ano: {filtro_ano}")
-    print(f"      • Mês: {filtro_mes}")
-    print(f"      • Cliente: {filtro_cliente} (tipo: {type(filtro_cliente)})")
-    print(f"      • Hierarquia: {filtro_hierarquia}")
-    print(f"      • Canal: {filtro_canal}")
-    print(f"      • Top Clientes: {filtro_top_clientes}")
-    print(f"      • Dias sem compra: {filtro_dias_sem_compra}")
-    print(f"      • Métrica tipo: {metrica_type}")
-    
-    if df is None or df.empty:
-        print("   ⚠️ DataFrame vazio ou None - retornando original")
-        return df
-    
-    df_filtrado = df.copy()
-    
-    # Detecta automaticamente a coluna de data baseada na métrica
-    date_column = None
-    if metrica_type == 'entrada':
-        # Para entrada de pedidos, sempre usar 'data' (data do pedido)
-        for col in ['data', 'data_faturamento', 'data_venda']:
-            if col in df_filtrado.columns:
-                date_column = col
-                print(f"   📅 Coluna de data para entrada detectada: {date_column}")
-                break
-    elif metrica_type == 'faturamento':
-        # Para faturamento, sempre usar 'data_faturamento'
-        for col in ['data_faturamento', 'data', 'data_venda']:
-            if col in df_filtrado.columns:
-                date_column = col
-                print(f"   📅 Coluna de data para faturamento detectada: {date_column}")
-                break
-    else:
-        # Detecta automaticamente (comportamento padrão anterior)
-        for col in ['data_faturamento', 'data', 'data_venda']:
-            if col in df_filtrado.columns:
-                date_column = col
-                print(f"   📅 Coluna de data detectada automaticamente: {date_column}")
-                break
-    
-    try:
-        # Filtro por ano - se vazio considera todos os anos
-        if filtro_ano and isinstance(filtro_ano, list) and len(filtro_ano) > 0 and date_column:
-            print(f"   ✅ Aplicando filtro ano: {filtro_ano}")
-            registros_antes = len(df_filtrado)
-            # Converte para datetime se necessário
-            if not pd.api.types.is_datetime64_any_dtype(df_filtrado[date_column]):
-                df_filtrado[date_column] = pd.to_datetime(df_filtrado[date_column], errors='coerce')
-            df_filtrado = df_filtrado[df_filtrado[date_column].dt.year.between(filtro_ano[0], filtro_ano[1])]
-            registros_depois = len(df_filtrado)
-            print(f"   ✅ Filtro ano aplicado: {registros_antes} → {registros_depois} registros")
-        
-        # Filtro por mês - se vazio considera todos os meses
-        if filtro_mes and isinstance(filtro_mes, list) and len(filtro_mes) > 0 and date_column:
-            print(f"   ✅ Aplicando filtro mês: {filtro_mes}")
-            registros_antes = len(df_filtrado)
-            # Converte para datetime se necessário
-            if not pd.api.types.is_datetime64_any_dtype(df_filtrado[date_column]):
-                df_filtrado[date_column] = pd.to_datetime(df_filtrado[date_column], errors='coerce')
-            df_filtrado = df_filtrado[df_filtrado[date_column].dt.month.between(filtro_mes[0], filtro_mes[1])]
-            registros_depois = len(df_filtrado)
-            print(f"   ✅ Filtro mês aplicado: {registros_antes} → {registros_depois} registros")
-        
-        # Filtro por cliente - se vazio considera todos os clientes
-        if filtro_cliente and isinstance(filtro_cliente, list) and len(filtro_cliente) > 0 and 'cod_cliente' in df_filtrado.columns:
-            print(f"   ✅ Aplicando filtro cliente: {filtro_cliente}")
-            registros_antes = len(df_filtrado)
-            df_filtrado = df_filtrado[df_filtrado['cod_cliente'].isin(filtro_cliente)]
-            registros_depois = len(df_filtrado)
-            print(f"   ✅ Filtro cliente aplicado: {registros_antes} → {registros_depois} registros")
-        elif filtro_cliente:
-            print(f"   ⚠️ Filtro cliente NÃO aplicado - cliente={bool(filtro_cliente)}, tipo={type(filtro_cliente)}, lista={isinstance(filtro_cliente, list) if filtro_cliente else 'N/A'}")
-            if 'cod_cliente' not in df_filtrado.columns:
-                print(f"   ⚠️ Coluna 'cod_cliente' não encontrada. Colunas disponíveis: {list(df_filtrado.columns)[:10]}")
-        
-        # Filtro por hierarquia - detecta automaticamente colunas de hierarquia
-        if filtro_hierarquia and isinstance(filtro_hierarquia, list) and len(filtro_hierarquia) > 0:
-            print(f"   ✅ Aplicando filtro hierarquia: {filtro_hierarquia}")
-            registros_antes = len(df_filtrado)
-            
-            # Mapeia hierarquia para colunas disponíveis (detecta automaticamente)
-            hier_cols = []
-            for col in df_filtrado.columns:
-                if any(keyword in col.lower() for keyword in ['hier', 'produto', 'material', 'categoria']):
-                    hier_cols.append(col)
-            
-            if hier_cols:
-                print(f"   📋 Colunas de hierarquia detectadas: {hier_cols}")
-                mask = pd.Series(False, index=df_filtrado.index)
-                for col in hier_cols:
-                    mask |= df_filtrado[col].isin(filtro_hierarquia)
-                if mask.any():
-                    df_filtrado = df_filtrado[mask]
-                    registros_depois = len(df_filtrado)
-                    print(f"   ✅ Filtro hierarquia aplicado: {registros_antes} → {registros_depois} registros")
-                else:
-                    print(f"   ⚠️ Nenhum registro encontrado com hierarquia: {filtro_hierarquia}")
-            else:
-                print(f"   ⚠️ Nenhuma coluna de hierarquia detectada")
-        
-        # Filtro por canal - detecta automaticamente colunas de canal
-        if filtro_canal and isinstance(filtro_canal, list) and len(filtro_canal) > 0:
-            print(f"   ✅ Aplicando filtro canal: {filtro_canal}")
-            registros_antes = len(df_filtrado)
-            
-            # Detecta coluna de canal automaticamente
-            canal_col = None
-            for col in ['canal_distribuicao', 'canal', 'distribui', 'vendedor']:
-                if col in df_filtrado.columns:
-                    canal_col = col
-                    break
-            
-            if canal_col:
-                print(f"   📋 Coluna de canal detectada: {canal_col}")
-                df_filtrado = df_filtrado[df_filtrado[canal_col].isin(filtro_canal)]
-                registros_depois = len(df_filtrado)
-                print(f"   ✅ Filtro canal aplicado: {registros_antes} → {registros_depois} registros")
-            else:
-                print(f"   ⚠️ Coluna de canal não encontrada. Colunas disponíveis: {list(df_filtrado.columns)[:10]}")
-        
-        # Filtro por produto - permite análise granular por produtos específicos
-        # (Não está nos filtros globais padrão, mas pode ser usado por análises específicas)
-        if hasattr(filtro_top_clientes, '__iter__') and not isinstance(filtro_top_clientes, str):
-            # Se filtro_top_clientes for uma lista de produtos (hack para reutilizar parâmetro)
-            produto_filter = filtro_top_clientes if isinstance(filtro_top_clientes, list) else None
-            if produto_filter and len(produto_filter) > 0:
-                print(f"   ✅ Aplicando filtro produto: {produto_filter}")
-                registros_antes = len(df_filtrado)
-                
-                # Detecta coluna de produto automaticamente
-                produto_col = None
-                for col in ['produto', 'material', 'item', 'descricao_produto']:
-                    if col in df_filtrado.columns:
-                        produto_col = col
-                        break
-                
-                if produto_col:
-                    print(f"   📋 Coluna de produto detectada: {produto_col}")
-                    df_filtrado = df_filtrado[df_filtrado[produto_col].isin(produto_filter)]
-                    registros_depois = len(df_filtrado)
-                    print(f"   ✅ Filtro produto aplicado: {registros_antes} → {registros_depois} registros")
-                else:
-                    print(f"   ⚠️ Coluna de produto não encontrada. Colunas disponíveis: {list(df_filtrado.columns)[:10]}")
-        
-        # Filtro por dias sem compra - CORRIGIDO para RangeSlider
-        if filtro_dias_sem_compra and isinstance(filtro_dias_sem_compra, list) and len(filtro_dias_sem_compra) == 2:
-            min_dias, max_dias = filtro_dias_sem_compra
-            print(f"   ✅ Aplicando filtro dias sem compra: {min_dias} a {max_dias} dias")
-            
-            # Se o range é o padrão [0, 1095], não aplica filtro
-            if min_dias == 0 and max_dias == 1095:
-                print(f"   ⚠️ Range padrão [0, 365] - não aplicando filtro")
-            elif date_column and 'cod_cliente' in df_filtrado.columns:
-                from datetime import datetime, timedelta
-                
-                # Converte a coluna data para datetime se necessário
-                if not pd.api.types.is_datetime64_any_dtype(df_filtrado[date_column]):
-                    df_filtrado[date_column] = pd.to_datetime(df_filtrado[date_column], errors='coerce')
-                
-                # Calcula as datas limite
-                data_limite_min = datetime.now() - timedelta(days=max_dias)  # Mais antiga (max dias atrás)
-                data_limite_max = datetime.now() - timedelta(days=min_dias)  # Mais recente (min dias atrás)
-                print(f"   📅 Data limite mínima: {data_limite_min.strftime('%Y-%m-%d')}")
-                print(f"   📅 Data limite máxima: {data_limite_max.strftime('%Y-%m-%d')}")
-                
-                # Pega a última compra por cliente
-                ultima_compra = df_filtrado.groupby('cod_cliente')[date_column].max()
-                print(f"   👥 Total clientes antes do filtro: {len(ultima_compra)}")
-                
-                # Filtra clientes que não compraram no range especificado
-                # última compra entre data_limite_min e data_limite_max
-                clientes_filtrados = ultima_compra[
-                    (ultima_compra >= data_limite_min) & (ultima_compra <= data_limite_max)
-                ].index
-                print(f"   👥 Clientes com última compra entre {min_dias} e {max_dias} dias atrás: {len(clientes_filtrados)}")
-                
-                # Aplica o filtro
-                if len(clientes_filtrados) > 0:
-                    registros_antes = len(df_filtrado)
-                    df_filtrado = df_filtrado[df_filtrado['cod_cliente'].isin(clientes_filtrados)]
-                    registros_depois = len(df_filtrado)
-                    print(f"   ✅ Filtro dias sem compra aplicado: {registros_antes} → {registros_depois} registros")
-                else:
-                    print("   ⚠️ Nenhum cliente encontrado no range especificado - retornando DataFrame vazio")
-                    # Retorna DataFrame vazio mas com as mesmas colunas
-                    df_filtrado = df_filtrado.iloc[0:0]
-        else:
-            if filtro_dias_sem_compra:
-                print(f"   ⚠️ Filtro dias sem compra inválido: {filtro_dias_sem_compra} (tipo: {type(filtro_dias_sem_compra)})")
-        
-        # Filtro Top N clientes - só aplica se especificado E maior que 0
-        # Se vazio ou 0, considera TODOS os clientes
-        if filtro_top_clientes and isinstance(filtro_top_clientes, (int, float)) and filtro_top_clientes > 0:
-            print(f"   ✅ Aplicando filtro top {filtro_top_clientes} clientes")
-            registros_antes = len(df_filtrado)
-            
-            # Detecta coluna de valor automaticamente
-            valor_col = None
-            for col in ['vlr_rol', 'valor_liquido', 'vlr_entrada', 'vlr_carteira', 'faturamento']:
-                if col in df_filtrado.columns:
-                    valor_col = col
-                    break
-            
-            if valor_col and 'cod_cliente' in df_filtrado.columns:
-                print(f"   📋 Coluna de valor detectada: {valor_col}")
-                # Agrupa por cliente e calcula o total faturado
-                cliente_totals = df_filtrado.groupby('cod_cliente')[valor_col].sum()
-                top_clientes = cliente_totals.nlargest(int(filtro_top_clientes)).index
-                df_filtrado = df_filtrado[df_filtrado['cod_cliente'].isin(top_clientes)]
-                registros_depois = len(df_filtrado)
-                print(f"   ✅ Filtro Top {filtro_top_clientes} aplicado: {registros_antes} → {registros_depois} registros - {len(top_clientes)} clientes selecionados")
-            else:
-                print(f"   ⚠️ Colunas necessárias não encontradas para filtro Top N (valor_col: {valor_col})")
-        else:
-            print(f"   📝 Top clientes vazio ou zero - considerando TODOS os clientes")
-        
-        print(f"🏁 APPLY_FILTERS finalizado - DataFrame resultante: {len(df_filtrado)} registros")
-        if df_filtrado.empty:
-            print(f"   ⚠️ ATENÇÃO: DataFrame final está VAZIO!")
-        
-        return df_filtrado
-        
-    except Exception as e:
-        print(f"   ❌ Erro ao aplicar filtros: {e}")
-        return df
-
-def determine_hierarchy_level(df_filtrado, filtro_hierarquia):
-    """
-    Determina qual nível de hierarquia usar baseado na lógica inteligente:
-    - Se nenhum filtro: mostra hier_produto_1
-    - Se filtro de hier_produto_1: mostra hier_produto_2
-    - Se filtro de hier_produto_2: mostra hier_produto_3
-    - Se filtro de hier_produto_3: mostra produtos individuais (top N)
-    """
-    
-    # Se não há filtro de hierarquia, usa o nível 1 (padrão)
-    if not filtro_hierarquia or not isinstance(filtro_hierarquia, list) or len(filtro_hierarquia) == 0:
-        print("   🎯 Sem filtro hierarquia - usando hier_produto_1")
-        return 1, 'hier_produto_1'
-    
-    # Verifica em qual nível de hierarquia estão os valores filtrados
-    hierarchy_cols = ['hier_produto_1', 'hier_produto_2', 'hier_produto_3']
-    
-    for level, col in enumerate(hierarchy_cols, 1):
-        if col in df_filtrado.columns:
-            # Verifica se algum valor do filtro está nesta coluna
-            unique_values = df_filtrado[col].dropna().unique()
-            if any(valor in unique_values for valor in filtro_hierarquia):
-                next_level = level + 1
-                next_col = f'hier_produto_{next_level}' if next_level <= 3 else 'produto'
-                
-                print(f"   🎯 Filtro encontrado no nível {level} ({col}) - próximo nível: {next_level} ({next_col})")
-                
-                # Se estamos no nível 3, retornamos produtos individuais
-                if next_level > 3:
-                    return 4, 'produto'  # Produtos individuais
-                else:
-                    return next_level, next_col
-    
-    # Se não encontrou correspondência, usa o padrão
-    print("   🎯 Filtro não encontrado em hierarquias - usando hier_produto_1")
-    return 1, 'hier_produto_1'
-
-# Importa outros módulos de callbacks
-try:
-    import webapp.callbacks_uploads
-    print("✅ Callbacks de upload carregados")
-except ImportError as e:
-    print(f"⚠️ Erro ao carregar callbacks de upload: {e}")
-
-try:
-    import webapp.callbacks_downloads
-    print("✅ Callbacks de download carregados")  
-except ImportError as e:
-    print(f"⚠️ Callbacks de download não disponíveis: {e}")
-
-# Instâncias dos calculadores
-kpi_calc = KPICalculator()
-viz_gen = VisualizationGenerator()
-
-# Stores para dados
-from dash import dcc
-import dash_bootstrap_components as dbc
-
-# =======================================
-# CALLBACKS INDIVIDUAIS PARA CADA COMPONENTE
-# =======================================
-# CALLBACKS INDIVIDUAIS PARA OVERVIEW
-# =======================================
-
-# Callback para KPI de Entrada de Pedidos - REATIVO A FILTROS
-@app.callback(
-    Output('kpi-entrada-pedidos', 'children'),
-    [Input('url', 'pathname'),
-     Input('global-filtro-ano', 'value'),
-     Input('global-filtro-mes', 'value'),
-     Input('global-filtro-cliente', 'value'),
-     Input('global-filtro-hierarquia', 'value'),
-     Input('global-filtro-canal', 'value'),
-     Input('global-filtro-top-clientes', 'value'),
-     Input('global-filtro-dias-sem-compra', 'value')],
-    prevent_initial_call=False
-)
-def update_kpi_entrada(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra):
-    """Atualiza KPI de Entrada de Pedidos - Thread Safe"""
-    print(f"🔄 UPDATE_KPI_ENTRADA executado - pathname: {pathname}")
-    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
-    print(f"   Filtros adicionais: hierarquia={filtro_hierarquia}, canal={filtro_canal}, top_clientes={filtro_top_clientes}")
-    
-    if pathname not in ['/', '/app', '/app/', '/app/overview']:
-        return "R$ 0"
-
-    try:
-        vendas_df = load_vendas_data()
-        print(f"📊 DADOS CARREGADOS: {len(vendas_df)} registros")
-        print(f"   Colunas originais: {list(vendas_df.columns)}")
-        
-        if vendas_df.empty:
-            print("❌ DataFrame de vendas está vazio!")
-            return "R$ 0"
-            
-        # Verificar dados originais de vlr_entrada
-        if 'vlr_entrada' in vendas_df.columns:
-            total_entrada_original = vendas_df['vlr_entrada'].sum()
-            registros_com_entrada = (vendas_df['vlr_entrada'] > 0).sum()
-            print(f"💰 DADOS ORIGINAIS vlr_entrada: soma={total_entrada_original:,.2f}, registros_positivos={registros_com_entrada}")
-            print(f"   Amostra vlr_entrada original: {vendas_df['vlr_entrada'].head(10).tolist()}")
-        else:
-            print("❌ Coluna vlr_entrada não existe nos dados originais!")
-            
-        # Aplica todos os filtros usando função auxiliar - especifica que é para entrada de pedidos
-        df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                  filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, metrica_type='entrada')
-        
-        print(f"📊 DADOS FILTRADOS: {len(df_filtrado)} registros")
-        print(f"   Colunas filtradas: {list(df_filtrado.columns) if not df_filtrado.empty else 'DataFrame vazio'}")
-        
-        entrada_valor = df_filtrado['vlr_entrada'].sum() if 'vlr_entrada' in df_filtrado.columns else 0
-        if 'vlr_entrada' in df_filtrado.columns and not df_filtrado.empty:
-            registros_filtrados_com_entrada = (df_filtrado['vlr_entrada'] > 0).sum()
-            print(f"💰 DADOS FILTRADOS vlr_entrada: soma={entrada_valor:,.2f}, registros_positivos={registros_filtrados_com_entrada}")
-            print(f"   Amostra vlr_entrada filtrado: {df_filtrado['vlr_entrada'].head(10).tolist()}")
-        
-        return f"R$ {entrada_valor:,.0f}"
-        
-    except Exception as e:
-        print(f"❌ Erro em update_kpi_entrada: {e}")
-        import traceback
-        print(f"❌ Traceback: {traceback.format_exc()}")
-        return "Erro"# Callback para KPI de Carteira - REATIVO A FILTROS
-@app.callback(
-    Output('kpi-valor-carteira', 'children'),
-    [Input('url', 'pathname'),
-     Input('global-filtro-ano', 'value'),
-     Input('global-filtro-mes', 'value'),
-     Input('global-filtro-cliente', 'value'),
-     Input('global-filtro-hierarquia', 'value'),
-     Input('global-filtro-canal', 'value'),
-     Input('global-filtro-top-clientes', 'value'),
-     Input('global-filtro-dias-sem-compra', 'value')],
-    prevent_initial_call=False
-)
-def update_kpi_carteira(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra):
-    """Atualiza KPI de Valor Carteira - Thread Safe"""
-    print(f"🔄 UPDATE_KPI_CARTEIRA executado - pathname: {pathname}")
-    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
-    print(f"   Filtros adicionais: hierarquia={filtro_hierarquia}, canal={filtro_canal}, top_clientes={filtro_top_clientes}")
-    
-    if pathname not in ['/', '/app', '/app/', '/app/overview']:
-        return "R$ 0"
-    
-    try:
-        vendas_df = load_vendas_data()
-        if vendas_df.empty:
-            return "R$ 0"
-            
-        # Aplica todos os filtros usando função auxiliar
-        df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                  filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
-        
-        carteira_valor = df_filtrado['vlr_carteira'].sum() if 'vlr_carteira' in df_filtrado.columns else 0
-        print(f"💰 KPI Carteira calculado: {carteira_valor:,.0f} (de {len(df_filtrado)} registros)")
-        return f"R$ {carteira_valor:,.0f}"
-        
-    except Exception as e:
-        print(f"❌ Erro em update_kpi_carteira: {e}")
-        return "Erro"
-
-# Callback para KPI de Faturamento - REATIVO A FILTROS
-@app.callback(
-    Output('kpi-faturamento', 'children'),
-    [Input('url', 'pathname'),
-     Input('global-filtro-ano', 'value'),
-     Input('global-filtro-mes', 'value'),
-     Input('global-filtro-cliente', 'value'),
-     Input('global-filtro-hierarquia', 'value'),
-     Input('global-filtro-canal', 'value'),
-     Input('global-filtro-top-clientes', 'value'),
-     Input('global-filtro-dias-sem-compra', 'value')],
-    prevent_initial_call=False
-)
-def update_kpi_faturamento(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra):
-    """Atualiza KPI de Faturamento - Thread Safe"""
-    print(f"🔄 UPDATE_KPI_FATURAMENTO executado - pathname: {pathname}")
-    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
-    print(f"   Filtros adicionais: hierarquia={filtro_hierarquia}, canal={filtro_canal}, top_clientes={filtro_top_clientes}")
-    
-    if pathname not in ['/', '/app', '/app/', '/app/overview']:
-        return "R$ 0"
-    
-    try:
-        vendas_df = load_vendas_data()
-        if vendas_df.empty:
-            return "R$ 0"
-            
-        # Aplica todos os filtros usando função auxiliar - especifica que é para faturamento
-        df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                  filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, metrica_type='faturamento')
-        
-        faturamento_valor = df_filtrado['vlr_rol'].sum() if 'vlr_rol' in df_filtrado.columns else 0
-        print(f"💰 KPI Faturamento calculado: {faturamento_valor:,.0f} (de {len(df_filtrado)} registros)")
-        return f"R$ {faturamento_valor:,.0f}"
-        
-    except Exception as e:
-        print(f"❌ Erro em update_kpi_faturamento: {e}")
-        return "Erro"
-
-# Callback para gráfico de evolução - REATIVO A FILTROS
-@app.callback(
-    Output('grafico-evolucao-vendas', 'figure'),
-    [Input('url', 'pathname'),
-     Input('global-filtro-ano', 'value'),
-     Input('global-filtro-mes', 'value'),
-     Input('global-filtro-cliente', 'value'),
-     Input('global-filtro-hierarquia', 'value'),
-     Input('global-filtro-canal', 'value'),
-     Input('global-filtro-top-clientes', 'value'),
-     Input('global-filtro-dias-sem-compra', 'value')],
-    prevent_initial_call=False
-)
-def update_grafico_evolucao(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra):
-    """Atualiza gráfico de evolução de vendas"""
-    print(f"🔄 UPDATE_GRAFICO_EVOLUCAO executado - pathname: {pathname}")
-    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
-    print(f"   Filtros adicionais: hierarquia={filtro_hierarquia}, canal={filtro_canal}, top_clientes={filtro_top_clientes}")
-    
-    if pathname not in ['/', '/app', '/app/', '/app/overview']:
-        import plotly.graph_objects as go
-        return go.Figure()
-    
-    try:
-        vendas_df = load_vendas_data()
-        if vendas_df.empty:
-            import plotly.graph_objects as go
-            return go.Figure()
-            
-        # Para o gráfico de evolução, precisamos filtrar separadamente para cada métrica
-        # porque entrada usa 'data' e faturamento usa 'data_faturamento'
-        
-        # Filtrar dados para FATURAMENTO (usando data_faturamento)
-        df_filtrado_faturamento = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                               filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, metrica_type='faturamento')
-        
-        # Filtrar dados para ENTRADA (usando data)
-        df_filtrado_entrada = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                          filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, metrica_type='entrada')
-        
-        # Gráfico de evolução - CORREÇÃO: Incluir vlr_entrada
-        import plotly.graph_objects as go
-        fig_vendas = go.Figure()
-        
-        # Preparar dados de faturamento agrupados por mês
-        if not df_filtrado_faturamento.empty and 'data_faturamento' in df_filtrado_faturamento.columns:
-            df_mes_faturamento = df_filtrado_faturamento.groupby(df_filtrado_faturamento['data_faturamento'].dt.strftime('%Y-%m')).agg({
-                'vlr_rol': 'sum'
-            }).sort_index()
-            
-            # Linha de Faturamento (vlr_rol)
-            fig_vendas.add_trace(go.Scatter(
-                x=df_mes_faturamento.index, 
-                y=df_mes_faturamento['vlr_rol'],
-                mode='lines+markers',
-                name='Faturamento',
-                line=dict(color='#28a745', width=3),
-                marker=dict(size=8),
-                yaxis='y'
-            ))
-        
-        # Preparar dados de entrada agrupados por mês
-        if not df_filtrado_entrada.empty and 'data' in df_filtrado_entrada.columns:
-            df_mes_entrada = df_filtrado_entrada.groupby(df_filtrado_entrada['data'].dt.strftime('%Y-%m')).agg({
-                'vlr_entrada': 'sum'
-            }).sort_index()
-            
-            # Linha de Entrada (vlr_entrada)
-            fig_vendas.add_trace(go.Scatter(
-                x=df_mes_entrada.index, 
-                y=df_mes_entrada['vlr_entrada'],
-                mode='lines+markers',
-                name='Entrada de Pedidos',
-                line=dict(color='#007bff', width=3, dash='dash'),
-                marker=dict(size=8),
-                yaxis='y'
-            ))
-        
-        fig_vendas.update_layout(
-            title="Evolução de Vendas e Entrada de Pedidos",
-            xaxis_title="Período",
-            yaxis_title="Valor (R$)",
-            template="plotly_white",
-            height=400,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
-            ),
-            hovermode='x unified'
-        )
-        
-        print(f"📈 Gráfico de evolução criado com dados separados para faturamento e entrada")
-        return fig_vendas
-        
-    except Exception as e:
-        print(f"❌ Erro em update_grafico_evolucao: {e}")
-        import plotly.graph_objects as go
-        return go.Figure()
-
-# Callback para KPIs por Unidade de Negócio - REATIVO A FILTROS
-@app.callback(
-    Output('kpis-unidades-negocio', 'children'),
-    [Input('url', 'pathname'),
-     Input('global-filtro-ano', 'value'),
-     Input('global-filtro-mes', 'value'),
-     Input('global-filtro-cliente', 'value'),
-     Input('global-filtro-hierarquia', 'value'),
-     Input('global-filtro-canal', 'value'),
-     Input('global-filtro-top-clientes', 'value'),
-     Input('global-filtro-dias-sem-compra', 'value')],
-    prevent_initial_call=False
-)
-def update_kpis_unidades_negocio(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra):
-    """Atualiza KPIs por Unidade de Negócio - Corrigido"""
-    print(f"🔄 UPDATE_KPIS_UNIDADES_NEGOCIO executado - pathname: {pathname}")
-    print(f"   Filtros recebidos: ano={filtro_ano}, mes={filtro_mes}, cliente={filtro_cliente}")
-    print(f"   Filtros adicionais: hierarquia={filtro_hierarquia}, canal={filtro_canal}, top_clientes={filtro_top_clientes}")
-    
-    if pathname not in ['/', '/app', '/app/', '/app/overview']:
-        print(f"❌ Pathname não válido para unidades de negócio: {pathname}")
-        return []
-
-    try:
-        vendas_df = load_vendas_data()
-        print(f"📊 DADOS CARREGADOS para UN: {len(vendas_df)} registros")
-        print(f"   Colunas originais: {list(vendas_df.columns)}")
-        
-        if vendas_df.empty:
-            print("❌ DataFrame de vendas está vazio para UN!")
-            return []
-            
-        # Verificar se existe coluna unidade_negocio
-        col_unidade = None
-        for col in vendas_df.columns:
-            if 'unidade' in col.lower():
-                col_unidade = col
-                print(f"🏢 Coluna de unidade encontrada: {col}")
-                break
-        
-        if not col_unidade:
-            print("❌ Nenhuma coluna de unidade de negócio encontrada!")
-            print(f"   Colunas disponíveis: {list(vendas_df.columns)}")
-            return []
-            
-        # Aplicar filtros separadamente para cada métrica para garantir que usamos a data correta
-        # Para faturamento (vlr_rol) - usar data_faturamento
-        df_filtrado_faturamento = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                               filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, metrica_type='faturamento')
-        
-        # Para entrada (vlr_entrada) - usar data  
-        df_filtrado_entrada = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                          filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, metrica_type='entrada')
-        
-        # Para carteira - usar padrão (normalmente data_faturamento)
-        df_filtrado_carteira = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                           filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
-        
-        print(f"📊 DADOS FILTRADOS para UN:")
-        print(f"   Faturamento: {len(df_filtrado_faturamento)} registros")
-        print(f"   Entrada: {len(df_filtrado_entrada)} registros") 
-        print(f"   Carteira: {len(df_filtrado_carteira)} registros")
-        
-        # KPIs por Unidade de Negócio - CORREÇÃO: Usar dados separados por métrica
-        kpis_un = []
-        
-        # Calcular KPIs separadamente para cada métrica
-        kpis_faturamento = {}
-        kpis_entrada = {}
-        kpis_carteira = {}
-        
-        # Processar Faturamento
-        if not df_filtrado_faturamento.empty and col_unidade in df_filtrado_faturamento.columns and 'vlr_rol' in df_filtrado_faturamento.columns:
-            kpis_faturamento = df_filtrado_faturamento.groupby(col_unidade)['vlr_rol'].sum().to_dict()
-            print(f"💰 KPIs Faturamento: {kpis_faturamento}")
-        
-        # Processar Entrada  
-        if not df_filtrado_entrada.empty and col_unidade in df_filtrado_entrada.columns and 'vlr_entrada' in df_filtrado_entrada.columns:
-            kpis_entrada = df_filtrado_entrada.groupby(col_unidade)['vlr_entrada'].sum().to_dict()
-            print(f"💰 KPIs Entrada: {kpis_entrada}")
-        
-        # Processar Carteira
-        if not df_filtrado_carteira.empty and col_unidade in df_filtrado_carteira.columns and 'vlr_carteira' in df_filtrado_carteira.columns:
-            kpis_carteira = df_filtrado_carteira.groupby(col_unidade)['vlr_carteira'].sum().to_dict()
-            print(f"💰 KPIs Carteira: {kpis_carteira}")
-        
-        # Combinar todas as unidades de negócio
-        todas_unidades = set()
-        todas_unidades.update(kpis_faturamento.keys())
-        todas_unidades.update(kpis_entrada.keys())
-        todas_unidades.update(kpis_carteira.keys())
-        
-        print(f"🏢 Unidades de negócio encontradas: {len(todas_unidades)}")
-        print(f"   Unidades: {list(todas_unidades)}")
-        
-        if todas_unidades:
-            import dash_bootstrap_components as dbc
-            
-            # Organizar cards em três linhas separadas
-            cards_faturamento = []
-            cards_entrada = []
-            cards_carteira = []
-            
-            # Criar cards para cada unidade de negócio organizados por métrica
-            for un in sorted(todas_unidades):
-                print(f"   Processando unidade: {un}")
-                
-                vlr_rol = kpis_faturamento.get(un, 0)
-                vlr_entrada = kpis_entrada.get(un, 0) 
-                vlr_carteira = kpis_carteira.get(un, 0)
-                
-                # Card para Faturamento (vlr_rol) - Primeira linha
-                if vlr_rol > 0:
-                    kpi_card_rol = dbc.Col([
-                        dbc.Card([
-                            dbc.CardBody([
-                                html.H6(f"R$ {vlr_rol:,.0f}", className="card-title text-secondary"),
-                                html.P(f"{str(un)} - Faturamento", className="card-text small text-muted")
-                            ])
-                        ], className="text-center h-100 mb-2 border-secondary")
-                    ], width=12, md=2)
-                    cards_faturamento.append(kpi_card_rol)
-                
-                # Card para Entrada (vlr_entrada) - Segunda linha
-                if vlr_entrada > 0:
-                    kpi_card_entrada = dbc.Col([
-                        dbc.Card([
-                            dbc.CardBody([
-                                html.H6(f"R$ {vlr_entrada:,.0f}", className="card-title text-secondary"),
-                                html.P(f"{str(un)} - Entrada", className="card-text small text-muted")
-                            ])
-                        ], className="text-center h-100 mb-2 border-secondary")
-                    ], width=12, md=2)
-                    cards_entrada.append(kpi_card_entrada)
-                
-                # Card para Carteira (vlr_carteira) - Terceira linha
-                if vlr_carteira > 0:
-                    kpi_card_carteira = dbc.Col([
-                        dbc.Card([
-                            dbc.CardBody([
-                                html.H6(f"R$ {vlr_carteira:,.0f}", className="card-title text-secondary"),
-                                html.P(f"{str(un)} - Carteira", className="card-text small text-muted")
-                            ])
-                        ], className="text-center h-100 mb-2 border-secondary")
-                    ], width=12, md=2)
-                    cards_carteira.append(kpi_card_carteira)
-            
-            # Organizar em linhas separadas
-            if cards_faturamento:
-                # Linha 1: Cards de Faturamento
-                kpis_un.extend([
-                    dbc.Row([
-                        dbc.Col([
-                            html.H6("Faturamento por Unidade de Negócio", className="text-success mb-3")
-                        ], width=12)
-                    ], className="mb-2"),
-                    dbc.Row(cards_faturamento, className="g-2 mb-4")
-                ])
-            
-            if cards_entrada:
-                # Linha 2: Cards de Entrada
-                kpis_un.extend([
-                    dbc.Row([
-                        dbc.Col([
-                            html.H6("Entrada de Pedidos por Unidade de Negócio", className="text-primary mb-3")
-                        ], width=12)
-                    ], className="mb-2"),
-                    dbc.Row(cards_entrada, className="g-2 mb-4")
-                ])
-            
-            if cards_carteira:
-                # Linha 3: Cards de Carteira
-                kpis_un.extend([
-                    dbc.Row([
-                        dbc.Col([
-                            html.H6("Carteira por Unidade de Negócio", className="text-warning mb-3")
-                        ], width=12)
-                    ], className="mb-2"),
-                    dbc.Row(cards_carteira, className="g-2 mb-4")
-                ])
-        
-        print(f"🏢 KPIs por Unidade de Negócio criados: {len(kpis_un)} cards")
-        return kpis_un
-        
-    except Exception as e:
-        print(f"❌ Erro em update_kpis_unidades_negocio: {e}")
-        import traceback
-        print(f"❌ Traceback: {traceback.format_exc()}")
-        return []# Registrar callbacks do chat
+# Registrar callbacks do chat (mantém comportamento anterior)
 try:
     from webapp.chat_interface import register_chat_callbacks
     register_chat_callbacks(app)
@@ -886,36 +143,59 @@ def update_filter_options(pathname):
             print("❌ Nenhum dado de vendas encontrado")
             return [], [], []
         
-        # Opções de clientes (dados já estão deduplicados pela padronização)
+        # Opções de clientes (robusto a colunas ausentes)
         cliente_options = []
-        if 'cod_cliente' in vendas_df.columns and 'cliente' in vendas_df.columns:
-            # Agrupa por código para garantir cliente único por código
-            clientes_unique = (vendas_df[['cod_cliente', 'cliente']]
-                             .dropna()
-                             .groupby('cod_cliente')['cliente']
-                             .first()  # Pega o primeiro (já foi deduplicado)
-                             .reset_index())
-            cliente_options = [
-                {'label': f"{row['cod_cliente']} -- {row['cliente']}", 'value': row['cod_cliente']}
-                for _, row in clientes_unique.iterrows()
-            ]
+        try:
+            dfc = vendas_df.copy()
+            # Normalizar possíveis colunas
+            if 'cod_cliente' in dfc.columns:
+                dfc['cod_cliente'] = dfc['cod_cliente'].astype(str).str.strip()
+            # Se não houver 'cliente', tentar encontrar uma alternativa comum
+            nome_col = 'cliente' if 'cliente' in dfc.columns else None
+            for alt in ['nome_cliente', 'cliente_nome', 'razao_social']:
+                if nome_col is None and alt in dfc.columns:
+                    nome_col = alt
+            if 'cod_cliente' in dfc.columns:
+                base_cols = ['cod_cliente'] + ([nome_col] if nome_col else [])
+                clientes_unique = dfc[base_cols].dropna(subset=['cod_cliente']).drop_duplicates('cod_cliente')
+                for _, row in clientes_unique.iterrows():
+                    code = str(row['cod_cliente'])
+                    name = str(row[nome_col]) if (nome_col and pd.notna(row.get(nome_col))) else ''
+                    label = f"{code} -- {name}" if name else code
+                    cliente_options.append({'label': label, 'value': code})
+            elif nome_col:
+                for val in sorted(set(dfc[nome_col].dropna().astype(str))):
+                    cliente_options.append({'label': val, 'value': val})
+        except Exception as _e_cli:
+            print(f"⚠️ Falha ao montar opções de cliente: {_e_cli}")
         print(f"✅ Clientes: {len(cliente_options)} opções")
         
-        # Opções de hierarquia de produto
+        # Opções de hierarquia de produto (deduplicadas / ordenadas)
         hierarquia_options = []
-        for col in ['hier_produto_1', 'hier_produto_2', 'hier_produto_3']:
-            if col in vendas_df.columns:
-                unique_vals = vendas_df[col].dropna().unique()
-                for val in unique_vals:
-                    if val not in [opt['value'] for opt in hierarquia_options]:
-                        hierarquia_options.append({'label': str(val), 'value': str(val)})
+        try:
+            seen = set()
+            for col in ['hier_produto_1', 'hier_produto_2', 'hier_produto_3']:
+                if col in vendas_df.columns:
+                    vals = [str(v) for v in vendas_df[col].dropna().unique()]
+                    for v in vals:
+                        if v not in seen:
+                            seen.add(v)
+            hierarquia_options = [{'label': v, 'value': v} for v in sorted(seen)]
+        except Exception as _e_h:
+            print(f"⚠️ Falha ao montar hierarquia: {_e_h}")
         print(f"✅ Hierarquia: {len(hierarquia_options)} opções")
         
-        # Opções de canal
+        # Opções de canal (suporta 'canal_distribuicao' e fallback 'canal')
         canal_options = []
-        if 'canal_distribuicao' in vendas_df.columns:
-            unique_canais = vendas_df['canal_distribuicao'].dropna().unique()
-            canal_options = [{'label': str(canal), 'value': str(canal)} for canal in unique_canais]
+        try:
+            if 'canal_distribuicao' in vendas_df.columns:
+                unique_canais = sorted(set(vendas_df['canal_distribuicao'].dropna().astype(str)))
+                canal_options = [{'label': c, 'value': c} for c in unique_canais]
+            elif 'canal' in vendas_df.columns:
+                unique_canais = sorted(set(vendas_df['canal'].dropna().astype(str)))
+                canal_options = [{'label': c, 'value': c} for c in unique_canais]
+        except Exception as _e_c:
+            print(f"⚠️ Falha ao montar canais: {_e_c}")
         print(f"✅ Canais: {len(canal_options)} opções")
         
         return cliente_options, hierarquia_options, canal_options
@@ -1001,41 +281,206 @@ def update_analytics_content(tipo_analise, filtro_ano, filtro_mes, filtro_client
 def create_gaps_analysis_content(analytics, df_vendas_filtrado=None, df_cotacoes_filtrado=None):
     """Cria conteúdo para análise de gaps de oportunidade - versão completa"""
     try:
+        # Sliders de pesos (UI)
+        weight_controls = dbc.Row([
+            dbc.Col([
+                html.Label("Peso Recência (R)", className="small"),
+                dcc.Slider(id="gaps-weight-r", min=0, max=100, step=5, value=30,
+                           marks={0:'0', 30:'30', 50:'50', 70:'70', 100:'100'})
+            ], width=4),
+            dbc.Col([
+                html.Label("Peso Frequência (F)", className="small"),
+                dcc.Slider(id="gaps-weight-f", min=0, max=100, step=5, value=40,
+                           marks={0:'0', 40:'40', 50:'50', 70:'70', 100:'100'})
+            ], width=4),
+            dbc.Col([
+                html.Label("Peso Valor (M)", className="small"),
+                dcc.Slider(id="gaps-weight-m", min=0, max=100, step=5, value=30,
+                           marks={0:'0', 30:'30', 50:'50', 70:'70', 100:'100'})
+            ], width=4)
+        ], className="mb-2")
+        weight_reset = dbc.Row([
+            dbc.Col(dbc.Button("Restaurar pesos 30/40/30", id='gaps-weights-reset', color='secondary', outline=True, size='sm'), width='auto')
+        ], className='mb-3')
+
+        # Dica inicial de pesos normalizados (30/40/30)
+        r0, f0, m0 = 30, 40, 30
+        s0 = max(r0 + f0 + m0, 1)
+        hint_initial = html.Div([
+            html.P("Dica: os pesos são normalizados para somarem 100% automaticamente.", className="text-muted small mb-1"),
+            html.P(f"Pesos normalizados: R={r0/s0*100:.0f}%, F={f0/s0*100:.0f}%, M={m0/s0*100:.0f}%", className="text-muted small mb-0")
+        ], id='gaps-weights-hint', className='mb-3')
+
+        # Configurações avançadas (penalidades/impulsos)
+        advanced_cfg = dbc.Card([
+            dbc.CardHeader([
+                html.Strong("Configurações avançadas"),
+                html.Span(" – ajuste penalidades e impulso de prioridade de cotações", className="text-muted small"),
+                dbc.Button([
+                    html.I(className="fas fa-question-circle me-2"),
+                    "Ajuda"
+                ], id='gaps-help-open', color='info', outline=True, size='sm', className='float-end')
+            ]),
+            dbc.CardBody([
+                dbc.Row([
+                    dbc.Col([
+                        html.Label("Início penalização conversão (0–1)", className="small"),
+                        dcc.Input(id='gaps-pen-conv-start', type='number', min=0, max=1, step=0.05, value=0.6, className='form-control'),
+                        dbc.Tooltip("Taxa de conversão a partir da qual começamos a penalizar (0–1). Ex.: 0.6 = 60%.", target='gaps-pen-conv-start', placement='right')
+                    ], width=4),
+                    dbc.Col([
+                        html.Label("Amplitude penalização conv (0–1)", className="small"),
+                        dcc.Input(id='gaps-pen-conv-span', type='number', min=0, max=1, step=0.05, value=0.4, className='form-control'),
+                        dbc.Tooltip("Intervalo de conversão até atingir penalização máxima (0–1). Ex.: 0.4 cobre até 100%.", target='gaps-pen-conv-span', placement='right')
+                    ], width=4),
+                    dbc.Col([
+                        html.Label("Penalização máx. conv (0–1)", className="small"),
+                        dcc.Input(id='gaps-pen-conv-max', type='number', min=0, max=1, step=0.05, value=0.4, className='form-control'),
+                        dbc.Tooltip("Intensidade máxima da penalização por alta conversão (0–1).", target='gaps-pen-conv-max', placement='right')
+                    ], width=4)
+                ], className='mb-2'),
+                dbc.Row([
+                    dbc.Col([
+                        html.Label("Penalização máx. vendas recentes (0–1)", className="small"),
+                        dcc.Input(id='gaps-pen-recent-max', type='number', min=0, max=1, step=0.05, value=0.2, className='form-control'),
+                        dbc.Tooltip("Intensidade máxima da penalização por vendas muito recentes (0–1).", target='gaps-pen-recent-max', placement='right')
+                    ], width=4),
+                    dbc.Col([
+                        html.Label("Impulso prioridade cotações máx. (0–1)", className="small"),
+                        dcc.Input(id='gaps-pen-boost-max', type='number', min=0, max=1, step=0.05, value=0.15, className='form-control'),
+                        dbc.Tooltip("Impulso máximo para materiais com cotações recentes/prioridade (0–1).", target='gaps-pen-boost-max', placement='right')
+                    ], width=4),
+                    dbc.Col([
+                        html.Label("Piso de momentum (0–1)", className="small"),
+                        dcc.Input(id='gaps-pen-momentum-floor', type='number', min=0, max=1, step=0.05, value=0.5, className='form-control'),
+                        dbc.Tooltip("Piso de momentum: mínimo de impulso para evitar zerar incremental (0–1).", target='gaps-pen-momentum-floor', placement='right')
+                    ], width=4)
+                ]),
+                dbc.Row([
+                    dbc.Col(html.P("Dica: use valores entre 0 e 1. Ex.: 0.6 = 60%.", className="text-muted small mt-2 mb-0"), width=8),
+                    dbc.Col(dbc.Button("Restaurar padrões", id='gaps-pen-reset', color='secondary', outline=True, size='sm', className='float-end mt-1'), width=4)
+                ], className='mt-1')
+            ])
+        ], className='mb-3')
+
+        # Modal de ajuda da análise de gaps
+        gaps_help_modal = dbc.Modal([
+            dbc.ModalHeader(dbc.ModalTitle("Como usar a Análise de Gaps")),
+            dbc.ModalBody([
+                html.P("Esta seção ajuda a priorizar produtos por potencial de crescimento baseado em padrões de compra (Q‑RFV) e sinais recentes (cotações)."),
+                html.H6("Pesos (R/F/M)", className="mt-3"),
+                html.Ul([
+                    html.Li([html.Strong("R – Recência:"), " privilegia itens com clientes que compraram há mais tempo."]),
+                    html.Li([html.Strong("F – Frequência:"), " destaca itens comprados com menos regularidade que o esperado."],),
+                    html.Li([html.Strong("M – Valor:"), " foca itens com maior oportunidade de receita."])
+                ], className='mb-2'),
+                html.P("Os pesos são normalizados automaticamente. O padrão recomendado é 30/40/30 (R/F/M)." , className='text-muted small'),
+                html.H6("Penalidades e Impulso", className="mt-3"),
+                html.Ul([
+                    html.Li([html.Strong("Conversão alta:"), " reduz score quando o item já converte bem – menos gap a capturar."]),
+                    html.Li([html.Strong("Vendas muito recentes:"), " reduz score para evitar ‘recompras’ imediatas."]),
+                    html.Li([html.Strong("Impulso por cotações:"), " aumenta score quando há interesse recente ou prioridade."])
+                ]),
+                html.H6("Interpretação do Score", className="mt-3"),
+                html.Ul([
+                    html.Li([html.Strong("Alto (≥ 70):"), " priorize ação (campanhas, follow‑ups, propostas)."]),
+                    html.Li([html.Strong("Médio (40–69):"), " investigue causas (preço, estoque, timing) e segmente."]),
+                    html.Li([html.Strong("Baixo (< 40):"), " oportunidade limitada agora ou dados insuficientes."])
+                ]),
+                html.H6("Dicas rápidas", className="mt-3"),
+                html.Ul([
+                    html.Li("Use ‘Comparar (Overlay)’ para ver Padrão (cinza) vs Ajuste Atual (colorido)."),
+                    html.Li("Clique em ‘Aplicar Visualização’ para fixar a escolha em toda a página."),
+                    html.Li("Passe o mouse nos pontos para ver explicações (recência, conversão, penalidades, base).")
+                ], className='mb-0')
+            ]),
+            dbc.ModalFooter(
+                dbc.Button("Fechar", id='gaps-help-close', color='secondary')
+            )
+        ], id='gaps-help-modal', is_open=False)
+
+        # Primeiro cálculo com pesos padrão; callback abaixo atualizará dinamicamente
         gaps_data = analytics.calculate_opportunity_gaps(
-            vendas_df=df_vendas_filtrado, 
-            cotacoes_df=df_cotacoes_filtrado
+            vendas_df=df_vendas_filtrado,
+            cotacoes_df=df_cotacoes_filtrado,
+            weights={"r": 30, "f": 40, "m": 30}
         )
+        # Garante DataFrame
+        if gaps_data is None:
+            gaps_data = pd.DataFrame()
+        # Normaliza colunas esperadas e tipos
+        expected_cols = ['produto', 'gap_score', 'gap_category', 'cliente_count', 'current_revenue', 'potential_revenue']
+        for col in expected_cols:
+            if col not in gaps_data.columns:
+                if col in ['gap_score', 'cliente_count', 'current_revenue', 'potential_revenue']:
+                    gaps_data[col] = 0
+                elif col == 'gap_category':
+                    # Deriva de score se possível
+                    if 'gap_score' in gaps_data.columns:
+                        gaps_data[col] = pd.cut(gaps_data['gap_score'], bins=[-1, 40, 70, 100], labels=['Baixo', 'Médio', 'Alto']).astype(str)
+                    else:
+                        gaps_data[col] = 'Desconhecido'
+                elif col == 'produto':
+                    gaps_data[col] = 'N/A'
+        # Coerção numérica segura
+        for num_col in ['gap_score', 'cliente_count', 'current_revenue', 'potential_revenue']:
+            if num_col in gaps_data.columns:
+                gaps_data[num_col] = pd.to_numeric(gaps_data[num_col], errors='coerce').fillna(0)
         
         # Adicionar colunas Material e Quantidade Sugerida
         if 'material' not in gaps_data.columns and df_vendas_filtrado is not None:
-            material_map = df_vendas_filtrado.groupby('produto')['material'].first().to_dict()
-            gaps_data['material'] = gaps_data['produto'].map(material_map).fillna('N/A')
+            try:
+                if 'produto' in df_vendas_filtrado.columns and 'material' in df_vendas_filtrado.columns:
+                    material_map = df_vendas_filtrado.groupby('produto')['material'].first().to_dict()
+                    gaps_data['material'] = gaps_data['produto'].map(material_map).fillna('N/A')
+                else:
+                    gaps_data['material'] = 'N/A'
+            except Exception:
+                gaps_data['material'] = 'N/A'
         elif 'material' not in gaps_data.columns:
             gaps_data['material'] = 'N/A'
         
         if 'quantidade_sugerida' not in gaps_data.columns and df_vendas_filtrado is not None:
-            qty_map = df_vendas_filtrado.groupby('produto')['qtd_rol'].mean().to_dict()
-            gaps_data['quantidade_sugerida'] = gaps_data['produto'].map(qty_map).fillna(1).round(0).astype(int)
+            try:
+                if 'produto' in df_vendas_filtrado.columns and 'qtd_rol' in df_vendas_filtrado.columns:
+                    qty_map = df_vendas_filtrado.groupby('produto')['qtd_rol'].mean().to_dict()
+                    gaps_data['quantidade_sugerida'] = gaps_data['produto'].map(qty_map).fillna(1).round(0).astype(int)
+                else:
+                    gaps_data['quantidade_sugerida'] = 1
+            except Exception:
+                gaps_data['quantidade_sugerida'] = 1
         elif 'quantidade_sugerida' not in gaps_data.columns:
             gaps_data['quantidade_sugerida'] = 1
         
         import plotly.express as px
         import plotly.graph_objects as go
         
-        fig = px.scatter(
-            gaps_data, 
-            x='potential_revenue', 
-            y='gap_score',
-            size='cliente_count',
-            color='gap_category',
-            hover_data=['produto', 'current_revenue'],
-            title="Gaps de Oportunidade por Produto",
-            labels={
-                'potential_revenue': 'Receita Potencial (R$)',
-                'gap_score': 'Score do Gap',
-                'cliente_count': 'Número de Clientes'
-            }
-        )
+        # Gráfico principal com fallback seguro caso colunas faltem
+        try:
+            hover_cols = [
+                'produto', 'current_revenue', 'conversion_rate', 'nao_comprado_pct',
+                'v_recency_days', 'q_recency_days', 'freq_gap', 'recency_gap', 'valor_gap',
+                'penalty_recent_sales', 'penalty_high_conv', 'gap_score_base'
+            ]
+            hover_cols = [c for c in hover_cols if c in gaps_data.columns]
+            fig = px.scatter(
+                gaps_data, 
+                x='potential_revenue', 
+                y='gap_score',
+                size='cliente_count',
+                color='gap_category',
+                hover_data=hover_cols,
+                title="Gaps de Oportunidade por Produto",
+                labels={
+                    'potential_revenue': 'Receita Potencial (R$)',
+                    'gap_score': 'Score do Gap',
+                    'cliente_count': 'Número de Clientes'
+                }
+            )
+        except Exception:
+            # Fallback simples
+            fig = go.Figure()
+            fig.update_layout(title="Gaps de Oportunidade por Produto", template="plotly_white")
         
         fig.update_layout(
             showlegend=True,
@@ -1054,10 +499,85 @@ def create_gaps_analysis_content(analytics, df_vendas_filtrado=None, df_cotacoes
             dragmode="zoom",
             selectdirection="d"
         )
+
+        # Linhas de corte horizontais no scatter (y=40 e y=70)
+        try:
+            for yval, color in [(40, '#f57c00'), (70, '#c62828')]:
+                fig.add_shape(type='line', x0=0, x1=1, y0=yval, y1=yval, xref='paper', yref='y',
+                              line=dict(color=color, dash='dash'))
+        except Exception:
+            pass
+
+        # Escala dinâmica do eixo X (Receita Potencial): usa log se amplitude for muito grande
+        scale_label = 'Linear'
+        try:
+            if 'potential_revenue' in gaps_data.columns:
+                vals = pd.to_numeric(gaps_data['potential_revenue'], errors='coerce').dropna()
+                if not vals.empty:
+                    min_pos = vals[vals > 0].min() if (vals > 0).any() else None
+                    max_val = vals.max()
+                    if min_pos is not None and max_val / max(min_pos, 1e-9) > 100:
+                        fig.update_xaxes(type='log', tickprefix='R$ ', tickformat=',.0f', showexponent='none')
+                        scale_label = 'Log'
+                    else:
+                        fig.update_xaxes(type='linear', tickprefix='R$ ', tickformat=',.0f')
+        except Exception:
+            pass
+        # Atualiza o título indicando a escala
+        fig.update_layout(title=f"Gaps de Oportunidade por Produto – Escala: {scale_label}")
+
+        # Distribuição inicial de score: histograma com linhas de corte e quantis
+        import numpy as np
+        try:
+            dist_fig = px.histogram(gaps_data, x='gap_score', nbins=20, histnorm='percent', title='Distribuição do Score de Gap (%)')
+        except Exception:
+            dist_fig = go.Figure()
+            dist_fig.update_layout(title='Distribuição do Score de Gap (%)')
+        dist_fig.update_layout(template='plotly_white', height=300, bargap=0.05, xaxis_title='Score de Gap', yaxis_title='% de Produtos')
+        if not gaps_data.empty and 'gap_score' in gaps_data.columns:
+            qs = gaps_data['gap_score'].dropna()
+            q50 = float(qs.median()) if not qs.empty else None
+            q25 = float(qs.quantile(0.25)) if not qs.empty else None
+            q75 = float(qs.quantile(0.75)) if not qs.empty else None
+            for xval, color in [(40, '#f57c00'), (70, '#c62828')]:
+                dist_fig.add_shape(type='line', x0=xval, x1=xval, y0=0, y1=1, xref='x', yref='paper', line=dict(color=color, dash='dash'))
+            for xval, color in [(q25, '#6c757d'), (q50, '#0d6efd'), (q75, '#6c757d')]:
+                if xval is not None:
+                    dist_fig.add_shape(type='line', x0=xval, x1=xval, y0=0, y1=1, xref='x', yref='paper', line=dict(color=color, dash='dot'))
+
+        # Mini-resumo por categoria (contagem e %)
+        total_rows = int(len(gaps_data))
+        def _count_pct(cat):
+            if 'gap_category' in gaps_data.columns and total_rows > 0:
+                c = int((gaps_data['gap_category'].astype(str) == cat).sum())
+                p = 100.0 * c / total_rows
+                return c, p
+            return 0, 0.0
+        alto_c, alto_p = _count_pct('Alto')
+        medio_c, medio_p = _count_pct('Médio')
+        baixo_c, baixo_p = _count_pct('Baixo')
+        summary_children = dbc.Row([
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Alto", className="text-danger small mb-1"), html.H4(f"{alto_c} ({alto_p:.1f}%)", className="mb-0")])) , width=2),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Médio", className="text-warning small mb-1"), html.H4(f"{medio_c} ({medio_p:.1f}%)", className="mb-0")])) , width=2),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Baixo", className="text-secondary small mb-1"), html.H4(f"{baixo_c} ({baixo_p:.1f}%)", className="mb-0")])) , width=2),
+        ], className="mb-2")
         
-        return html.Div([
-            # Métricas resumo
-            dbc.Row([
+        # Estatísticas de score (mediana e IQR)
+        qs_stats = gaps_data['gap_score'].dropna() if 'gap_score' in gaps_data.columns else pd.Series(dtype=float)
+        if qs_stats.empty:
+            med_score = 0.0
+            q1 = 0.0
+            q3 = 0.0
+            iqr = 0.0
+        else:
+            med_score = float(qs_stats.median())
+            q1 = float(qs_stats.quantile(0.25))
+            q3 = float(qs_stats.quantile(0.75))
+            iqr = float(q3 - q1)
+
+        # KPIs container (dynamic)
+        mean_base_initial = gaps_data['gap_score_base'].mean() if 'gap_score_base' in gaps_data.columns and not gaps_data.empty else None
+        kpi_row = dbc.Row([
                 dbc.Col([
                     dbc.Card([
                         dbc.CardBody([
@@ -1070,7 +590,16 @@ def create_gaps_analysis_content(analytics, df_vendas_filtrado=None, df_cotacoes
                     dbc.Card([
                         dbc.CardBody([
                             html.H4(f"{gaps_data['gap_score'].mean():.2f}", className="text-warning mb-0"),
-                            html.P("Score Médio", className="text-muted small mb-0")
+                            html.P("Score Médio", className="text-muted small mb-1"),
+                            html.Small((f"Base: {mean_base_initial:.2f}" if mean_base_initial is not None else ""), className="text-muted")
+                        ])
+                    ])
+                ], width=3),
+                dbc.Col([
+                    dbc.Card([
+                        dbc.CardBody([
+                            html.H4(f"R$ {gaps_data.get('incremental_revenue', pd.Series()).sum():,.0f}", className="text-info mb-0"),
+                            html.P("Receita Incremental Total", className="text-muted small mb-0")
                         ])
                     ])
                 ], width=3),
@@ -1082,19 +611,151 @@ def create_gaps_analysis_content(analytics, df_vendas_filtrado=None, df_cotacoes
                         ])
                     ])
                 ], width=3),
-                dbc.Col([
-                    dbc.Card([
-                        dbc.CardBody([
-                            html.H4(f"{len(gaps_data[gaps_data['gap_category'] == 'Alto']):,}", className="text-danger mb-0"),
-                            html.P("Gaps de Alto Potencial", className="text-muted small mb-0")
-                        ])
+            ], className="mb-3")
+
+        stats_row = dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6("Mediana do Score", className="text-muted small mb-1"),
+                        html.H4(f"{med_score:.2f}", className="mb-0")
                     ])
-                ], width=3)
-            ], className="mb-4"),
+                ])
+            ], width=3),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6("IQR do Score (Q3-Q1)", className="text-muted small mb-1"),
+                        html.H4(f"{iqr:.2f}", className="mb-0")
+                    ])
+                ])
+            ], width=3),
+        ], className="mb-2")
+
+        kpis_children = html.Div([kpi_row, stats_row])
+
+        # Badge inicial: Incremental penalizado por conversão/recência
+        try:
+            incr_total = float(gaps_data.get('incremental_revenue', pd.Series(dtype=float)).sum()) if 'incremental_revenue' in gaps_data.columns else 0.0
+        except Exception:
+            incr_total = 0.0
+        try:
+            pot_total = float(gaps_data['potential_revenue'].sum()) if 'potential_revenue' in gaps_data.columns else 0.0
+        except Exception:
+            pot_total = 0.0
+        penalized = (incr_total <= 1e-9) and (pot_total > 0) and (len(gaps_data) > 0)
+        penalty_children = []
+        if penalized:
+            # consolidar evidências para tooltip
+            try:
+                v_days = pd.to_numeric(gaps_data.get('v_recency_days', pd.Series(dtype=float)), errors='coerce')
+                conv = pd.to_numeric(gaps_data.get('conversion_rate', pd.Series(dtype=float)), errors='coerce')
+                pr = pd.to_numeric(gaps_data.get('penalty_recent_sales', pd.Series(dtype=float)), errors='coerce')
+                pc = pd.to_numeric(gaps_data.get('penalty_high_conv', pd.Series(dtype=float)), errors='coerce')
+            except Exception:
+                v_days = pd.Series(dtype=float); conv = pd.Series(dtype=float); pr = pd.Series(dtype=float); pc = pd.Series(dtype=float)
+
+            # métricas-resumo (medianas) para descrição
+            recency_days_med = int(v_days.dropna().median()) if not v_days.dropna().empty else None
+            conv_med = float(conv.dropna().median()) if not conv.dropna().empty else None
+            pr_med = float(pr.dropna().median()) if not pr.dropna().empty else 0.0
+            pc_med = float(pc.dropna().median()) if not pc.dropna().empty else 0.0
+
+            parts = []
+            if pr_med and pr_med > 0:
+                if recency_days_med is not None:
+                    parts.append(f"Penalidade de recência aplicada (última venda ~{recency_days_med} dias)")
+                else:
+                    parts.append("Penalidade de recência aplicada")
+            if pc_med and pc_med > 0:
+                if conv_med is not None:
+                    parts.append(f"Penalidade de conversão alta (taxa mediana ~{conv_med:.1f}%)")
+                else:
+                    parts.append("Penalidade de conversão alta")
+            if not parts:
+                parts = ["Penalidades ativas reduziram o incremento a zero"]
+
+            tooltip_text = "; ".join(parts)
+
+            penalty_children = [
+                html.Span(
+                    children=[
+                        dbc.Badge("Incremental penalizado por conversão/recência", color="warning", className="me-2", style={"cursor": "help"}, title=tooltip_text),
+                        html.Small("Passe o mouse para ver detalhes das penalidades.", className="text-muted")
+                    ]
+                )
+            ]
+
+        alto_card_row = dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H4(f"{len(gaps_data[gaps_data.get('gap_category', pd.Series()).astype(str) == 'Alto']):,}", className="text-danger mb-0"),
+                        html.P("Gaps de Alto Potencial", className="text-muted small mb-0")
+                    ])
+                ])
+            ], width=3)
+        ], className="mb-4")
+
+        return html.Div([
+            # KPIs + Estatísticas
+            html.Div(kpis_children, id='gaps-kpis'),
+            html.Div(id='gaps-penalty-badge', children=penalty_children, className='mb-2'),
+            alto_card_row,
+
+            # Controles de peso
+            weight_controls,
+            weight_reset,
+            hint_initial,
+            advanced_cfg,
+
+            # Controles de comparação de visualização
+            dbc.Card([
+                dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col([
+                            html.Label("Visualização", className="small mb-1"),
+                            dcc.RadioItems(
+                                id='gaps-compare-mode',
+                                options=[
+                                    {'label': 'Comparar (Overlay)', 'value': 'overlay'},
+                                    {'label': 'Apenas Padrão', 'value': 'baseline'},
+                                    {'label': 'Apenas Ajuste Atual', 'value': 'current'}
+                                ],
+                                value='overlay',
+                                inputClassName='me-1',
+                                labelStyle={'marginRight': '12px'},
+                                className='small'
+                            )
+                        ], width=8),
+                        dbc.Col([
+                            html.Label("Aplicar escolha", className="small mb-1"),
+                            html.Div([
+                                dbc.Button("Aplicar Visualização", id='gaps-apply-view', color='primary', size='sm')
+                            ])
+                        ], width=4, className='text-end')
+                    ]),
+                    html.Div([
+                        html.I(className="fas fa-info-circle me-2"),
+                        html.Span("Overlay mostra Padrão (cinza) vs Ajuste Atual (colorido). Use ‘Aplicar’ para fixar a opção.")
+                    ], className='text-muted small mt-2')
+                ])
+            ], className='mb-3'),
+
+            # Store para persistir visual ativa
+            dcc.Store(id='gaps-active-view', data='overlay'),
             
             # Gráfico
             html.Div([
-                dcc.Graph(figure=fig)
+                dcc.Graph(id='gaps-scatter', figure=fig)
+            ], className="mb-4"),
+
+            # Mini-resumo de categorias
+            html.Div(id='gaps-distribution-summary', children=summary_children, className="mb-2"),
+
+            # Distribuição estatística auxiliar
+            html.Div([
+                dcc.Graph(id='gaps-distribution', figure=dist_fig)
             ], className="mb-4"),
             
             # Explicação da análise
@@ -1106,9 +767,9 @@ def create_gaps_analysis_content(analytics, df_vendas_filtrado=None, df_cotacoes
                     "que considera a receita potencial estimada com base no comportamento de clientes similares."
                 ], className="mb-2"),
                 html.Ul([
-                    html.Li([html.Strong("Score Alto (>75): "), "Oportunidades prioritárias com alto potencial de conversão"]),
-                    html.Li([html.Strong("Score Médio (25-75): "), "Oportunidades moderadas que requerem análise adicional"]),
-                    html.Li([html.Strong("Score Baixo (<25): "), "Baixo potencial ou dados insuficientes"])
+                    html.Li([html.Strong("Score Alto (≥ 70): "), "Oportunidades prioritárias com alto potencial de conversão"]),
+                    html.Li([html.Strong("Score Médio (40–69): "), "Oportunidades moderadas que requerem análise adicional"]),
+                    html.Li([html.Strong("Score Baixo (< 40): "), "Baixo potencial ou dados insuficientes"])
                 ], className="mb-2"),
                 html.P([
                     html.I(className="fas fa-lightbulb me-2"),
@@ -1161,18 +822,19 @@ def create_gaps_analysis_content(analytics, df_vendas_filtrado=None, df_cotacoes
                             {"name": "Categoria", "id": "gap_category"},
                             {"name": "Receita Atual (R$)", "id": "current_revenue", "type": "numeric", "format": {"specifier": ",.0f"}},
                             {"name": "Receita Potencial (R$)", "id": "potential_revenue", "type": "numeric", "format": {"specifier": ",.0f"}},
+                            {"name": "Receita Incremental (R$)", "id": "incremental_revenue", "type": "numeric", "format": {"specifier": ",.0f"}},
                             {"name": "Clientes", "id": "cliente_count", "type": "numeric"}
                         ],
                         style_cell={'textAlign': 'left', 'fontSize': '12px'},
                         style_header={'backgroundColor': '#f8f9fa', 'fontWeight': 'bold'},
                         style_data_conditional=[
                             {
-                                'if': {'filter_query': '{gap_category} = Alto'},
+                                'if': {'filter_query': '{gap_category} = "Alto"'},
                                 'backgroundColor': '#ffebee',
                                 'color': '#c62828'
                             },
                             {
-                                'if': {'filter_query': '{gap_category} = Médio'},
+                                'if': {'filter_query': '{gap_category} = "Médio"'},
                                 'backgroundColor': '#fff8e1',
                                 'color': '#f57c00'
                             }
@@ -1214,11 +876,58 @@ def create_gaps_analysis_content(analytics, df_vendas_filtrado=None, df_cotacoes
                             ])
                         ])
                     ])
-                ], width=12)
-            ])
+                ])
+            ]),
+
+            # Modal de ajuda (fora dos cartões para evitar overflow)
+            gaps_help_modal
         ])
     except Exception as e:
         return dbc.Alert(f"Erro ao gerar análise de gaps: {str(e)}", color="danger")
+
+# Reset penalties to default values (global callback)
+@app.callback(
+    [Output('gaps-pen-conv-start', 'value'),
+     Output('gaps-pen-conv-span', 'value'),
+     Output('gaps-pen-conv-max', 'value'),
+     Output('gaps-pen-recent-max', 'value'),
+     Output('gaps-pen-boost-max', 'value'),
+     Output('gaps-pen-momentum-floor', 'value')],
+    [Input('gaps-pen-reset', 'n_clicks')],
+    prevent_initial_call=True
+)
+def reset_penalties(n_clicks):
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    # Defaults aligned with initial UI values
+    return 0.6, 0.4, 0.4, 0.2, 0.15, 0.5
+
+# Reset weights to 30/40/30
+@app.callback(
+    [Output('gaps-weight-r', 'value'), Output('gaps-weight-f', 'value'), Output('gaps-weight-m', 'value')],
+    [Input('gaps-weights-reset', 'n_clicks')],
+    prevent_initial_call=True
+)
+def reset_weights(n_clicks):
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    return 30, 40, 30
+
+# Toggle help modal (open/close)
+@app.callback(
+    Output('gaps-help-modal', 'is_open'),
+    [Input('gaps-help-open', 'n_clicks'), Input('gaps-help-close', 'n_clicks')],
+    [State('gaps-help-modal', 'is_open')],
+    prevent_initial_call=True
+)
+def toggle_gaps_help_modal(open_clicks, close_clicks, is_open):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
+    trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    if trigger_id in ('gaps-help-open', 'gaps-help-close'):
+        return not is_open
+    raise dash.exceptions.PreventUpdate
 
 def create_inactivity_analysis_content(analytics, df_vendas_filtrado=None):
     """Cria conteúdo para análise de alertas de inatividade"""
@@ -2059,7 +1768,16 @@ def generate_ml_purchase_suggestions(analytics, df_vendas, df_cotacoes):
 # Callback para seletor de top gaps
 @app.callback(
     Output('gaps-table-container', 'children'),
-    [Input('gaps-top-n-selector', 'value')],
+    [Input('gaps-top-n-selector', 'value'),
+     Input('gaps-weight-r', 'value'),
+     Input('gaps-weight-f', 'value'),
+     Input('gaps-weight-m', 'value'),
+     Input('gaps-pen-conv-start', 'value'),
+     Input('gaps-pen-conv-span', 'value'),
+     Input('gaps-pen-conv-max', 'value'),
+     Input('gaps-pen-recent-max', 'value'),
+     Input('gaps-pen-boost-max', 'value'),
+     Input('gaps-pen-momentum-floor', 'value')],
     [State('global-filtro-ano', 'value'),
      State('global-filtro-mes', 'value'),
      State('global-filtro-cliente', 'value'),
@@ -2067,7 +1785,7 @@ def generate_ml_purchase_suggestions(analytics, df_vendas, df_cotacoes):
      State('global-filtro-canal', 'value'),
      State('global-filtro-top-clientes', 'value')]
 )
-def update_gaps_table_size(top_n, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes):
+def update_gaps_table_size(top_n, w_r, w_f, w_m, pen_conv_start, pen_conv_span, pen_conv_max, pen_recent_max, pen_boost_max, pen_momentum_floor, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes):
     """Atualiza tamanho da tabela de gaps respeitando os filtros aplicados"""
     try:
         # Recarrega dados aplicando os mesmos filtros do analytics
@@ -2081,7 +1799,16 @@ def update_gaps_table_size(top_n, filtro_ano, filtro_mes, filtro_cliente, filtro
                                            filtro_hierarquia, filtro_canal, filtro_top_clientes)
         
         analytics = AdvancedAnalytics(df_vendas_filtrado, df_cotacoes_filtrado)
-        gaps_data = analytics.calculate_opportunity_gaps(df_vendas_filtrado, df_cotacoes_filtrado)
+        weights = {"r": (w_r or 30), "f": (w_f or 40), "m": (w_m or 30)}
+        penalty_cfg = {
+            'conv_penalty_start': float(pen_conv_start) if pen_conv_start is not None else 0.6,
+            'conv_penalty_span': float(pen_conv_span) if pen_conv_span is not None else 0.4,
+            'conv_penalty_max': float(pen_conv_max) if pen_conv_max is not None else 0.4,
+            'recent_penalty_max': float(pen_recent_max) if pen_recent_max is not None else 0.2,
+            'quote_priority_boost_max': float(pen_boost_max) if pen_boost_max is not None else 0.15,
+            'momentum_floor': float(pen_momentum_floor) if pen_momentum_floor is not None else 0.5,
+        }
+        gaps_data = analytics.calculate_opportunity_gaps(df_vendas_filtrado, df_cotacoes_filtrado, weights=weights, penalty=penalty_cfg)
         
         # Adicionar colunas Material e Quantidade Sugerida
         if 'material' not in gaps_data.columns:
@@ -2110,18 +1837,19 @@ def update_gaps_table_size(top_n, filtro_ano, filtro_mes, filtro_cliente, filtro
                 {"name": "Categoria", "id": "gap_category"},
                 {"name": "Receita Atual (R$)", "id": "current_revenue", "type": "numeric", "format": {"specifier": ",.0f"}},
                 {"name": "Receita Potencial (R$)", "id": "potential_revenue", "type": "numeric", "format": {"specifier": ",.0f"}},
+                {"name": "Receita Incremental (R$)", "id": "incremental_revenue", "type": "numeric", "format": {"specifier": ",.0f"}},
                 {"name": "Clientes", "id": "cliente_count", "type": "numeric"}
             ],
             style_cell={'textAlign': 'left', 'fontSize': '12px'},
             style_header={'backgroundColor': '#f8f9fa', 'fontWeight': 'bold'},
             style_data_conditional=[
                 {
-                    'if': {'filter_query': '{gap_category} = Alto'},
+                    'if': {'filter_query': '{gap_category} = "Alto"'},
                     'backgroundColor': '#ffebee',
                     'color': '#c62828'
                 },
                 {
-                    'if': {'filter_query': '{gap_category} = Médio'},
+                    'if': {'filter_query': '{gap_category} = "Médio"'},
                     'backgroundColor': '#fff8e1',
                     'color': '#f57c00'
                 }
@@ -2129,13 +1857,286 @@ def update_gaps_table_size(top_n, filtro_ano, filtro_mes, filtro_cliente, filtro
             export_format="csv",
             export_headers="display"
         )
-        
     except Exception as e:
         return dbc.Alert(f"Erro ao atualizar tabela: {str(e)}", color="danger")
 
+@app.callback(
+    [Output('gaps-kpis', 'children'), Output('gaps-scatter', 'figure'), Output('gaps-distribution', 'figure'), Output('gaps-distribution-summary', 'children'), Output('gaps-weights-hint', 'children'), Output('gaps-penalty-badge', 'children')],
+    [Input('gaps-weight-r', 'value'),
+     Input('gaps-weight-f', 'value'),
+     Input('gaps-weight-m', 'value'),
+     Input('gaps-pen-conv-start', 'value'),
+     Input('gaps-pen-conv-span', 'value'),
+     Input('gaps-pen-conv-max', 'value'),
+     Input('gaps-pen-recent-max', 'value'),
+     Input('gaps-pen-boost-max', 'value'),
+     Input('gaps-pen-momentum-floor', 'value'),
+     Input('gaps-compare-mode', 'value'),
+     Input('gaps-active-view', 'data'),
+     Input('global-filtro-ano', 'value'),
+     Input('global-filtro-mes', 'value'),
+     Input('global-filtro-cliente', 'value'),
+     Input('global-filtro-hierarquia', 'value'),
+     Input('global-filtro-canal', 'value'),
+     Input('global-filtro-top-clientes', 'value')]
+)
+def update_gaps_kpis_and_chart(w_r, w_f, w_m, pen_conv_start, pen_conv_span, pen_conv_max, pen_recent_max, pen_boost_max, pen_momentum_floor, compare_mode, active_view, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes):
+    from utils import AdvancedAnalytics
+    try:
+        df_vendas = load_vendas_data()
+        df_cotacoes = load_cotacoes_data()
+        df_vendas_filtrado = apply_filters(df_vendas, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes)
+        df_cotacoes_filtrado = apply_filters(df_cotacoes, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes)
+        analytics = AdvancedAnalytics(df_vendas, df_cotacoes)
+        # Peso atual e baseline (30/40/30)
+        weights_current = {"r": (w_r or 30), "f": (w_f or 40), "m": (w_m or 30)}
+        weights_baseline = {"r": 30, "f": 40, "m": 30}
+        penalty_cfg = {
+            'conv_penalty_start': float(pen_conv_start) if pen_conv_start is not None else 0.6,
+            'conv_penalty_span': float(pen_conv_span) if pen_conv_span is not None else 0.4,
+            'conv_penalty_max': float(pen_conv_max) if pen_conv_max is not None else 0.4,
+            'recent_penalty_max': float(pen_recent_max) if pen_recent_max is not None else 0.2,
+            'quote_priority_boost_max': float(pen_boost_max) if pen_boost_max is not None else 0.15,
+            'momentum_floor': float(pen_momentum_floor) if pen_momentum_floor is not None else 0.5,
+        }
+        # Calcula datasets
+        gaps_current = analytics.calculate_opportunity_gaps(df_vendas_filtrado, df_cotacoes_filtrado, weights=weights_current, penalty=penalty_cfg)
+        gaps_baseline = analytics.calculate_opportunity_gaps(df_vendas_filtrado, df_cotacoes_filtrado, weights=weights_baseline, penalty=penalty_cfg)
+
+        # Decide visualização efetiva
+        view = active_view or compare_mode or 'overlay'
+        gaps_data = gaps_current if view == 'current' else (gaps_baseline if view == 'baseline' else gaps_current)
+
+        qs_stats = gaps_data['gap_score'].dropna() if 'gap_score' in gaps_data.columns else pd.Series(dtype=float)
+        if qs_stats.empty:
+            med_score = 0.0
+            q1 = 0.0
+            q3 = 0.0
+            iqr = 0.0
+        else:
+            med_score = float(qs_stats.median())
+            q1 = float(qs_stats.quantile(0.25))
+            q3 = float(qs_stats.quantile(0.75))
+            iqr = float(q3 - q1)
+
+        mean_final = gaps_data['gap_score'].mean() if 'gap_score' in gaps_data.columns and not gaps_data.empty else 0
+        mean_base = gaps_data['gap_score_base'].mean() if 'gap_score_base' in gaps_data.columns and not gaps_data.empty else None
+        kpi_row = dbc.Row([
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{len(gaps_data):,}", className="text-primary mb-0"), html.P("Produtos Analisados", className="text-muted small mb-0")])) , width=3),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"{mean_final:.2f}", className="text-warning mb-0"), html.P("Score Médio", className="text-muted small mb-1"), html.Small((f"Base: {mean_base:.2f}" if mean_base is not None else ""), className="text-muted")])) , width=3),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"R$ {gaps_data.get('incremental_revenue', pd.Series()).sum():,.0f}", className="text-info mb-0"), html.P("Receita Incremental Total", className="text-muted small mb-0")])) , width=3),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H4(f"R$ {gaps_data['potential_revenue'].sum():,.0f}", className="text-success mb-0"), html.P("Receita Potencial Total", className="text-muted small mb-0")])) , width=3)
+        ], className="mb-3")
+
+        stats_row = dbc.Row([
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Mediana do Score", className="text-muted small mb-1"), html.H4(f"{med_score:.2f}", className="mb-0")])) , width=3),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("IQR do Score (Q3-Q1)", className="text-muted small mb-1"), html.H4(f"{iqr:.2f}", className="mb-0")])) , width=3)
+        ], className="mb-2")
+
+        kpis_children = html.Div([kpi_row, stats_row])
+
+        import plotly.express as px
+        import plotly.graph_objects as go
+        # Scatter com overlay opcional
+        try:
+            hover_cols = [
+                'produto', 'current_revenue', 'conversion_rate', 'nao_comprado_pct',
+                'v_recency_days', 'q_recency_days', 'freq_gap', 'recency_gap', 'valor_gap',
+                'penalty_recent_sales', 'penalty_high_conv', 'gap_score_base'
+            ]
+            base_cols_present = [c for c in hover_cols if c in gaps_baseline.columns]
+            cur_cols_present = [c for c in hover_cols if c in gaps_current.columns]
+            if view == 'overlay':
+                fig = go.Figure()
+                # baseline trace (sombreado/cinza)
+                if not gaps_baseline.empty:
+                    fig_baseline = px.scatter(
+                        gaps_baseline,
+                        x='potential_revenue', y='gap_score', size='cliente_count', color='gap_category',
+                        hover_data=base_cols_present
+                    )
+                    for tr in fig_baseline.data:
+                        tr.name = f"Padrão • {tr.name}"
+                        tr.marker.opacity = 0.25
+                        tr.marker.color = '#6c757d' if hasattr(tr, 'marker') else None
+                        fig.add_trace(tr)
+                # current trace (cor viva)
+                if not gaps_current.empty:
+                    fig_current = px.scatter(
+                        gaps_current,
+                        x='potential_revenue', y='gap_score', size='cliente_count', color='gap_category',
+                        hover_data=cur_cols_present
+                    )
+                    for tr in fig_current.data:
+                        tr.name = f"Atual • {tr.name}"
+                        tr.marker.opacity = 0.9
+                        fig.add_trace(tr)
+            else:
+                data = gaps_baseline if view == 'baseline' else gaps_current
+                cols_present = [c for c in hover_cols if c in data.columns]
+                fig = px.scatter(
+                    data,
+                    x='potential_revenue', y='gap_score', size='cliente_count', color='gap_category',
+                    hover_data=cols_present
+                )
+        except Exception:
+            fig = go.Figure()
+        fig.update_layout(template='plotly_white', height=500,
+                          xaxis_title='Receita Potencial (R$)', yaxis_title='Score do Gap')
+        # Linhas de corte horizontais
+        try:
+            for yval, color in [(40, '#f57c00'), (70, '#c62828')]:
+                fig.add_shape(type='line', x0=0, x1=1, y0=yval, y1=yval, xref='paper', yref='y', line=dict(color=color, dash='dash'))
+        except Exception:
+            pass
+        # Ajusta escala do eixo X dinamicamente e atualiza o título com a escala
+        scale_label = 'Linear'
+        try:
+            if 'potential_revenue' in gaps_data.columns:
+                vals = pd.to_numeric(gaps_data['potential_revenue'], errors='coerce').dropna()
+                if not vals.empty:
+                    min_pos = vals[vals > 0].min() if (vals > 0).any() else None
+                    max_val = vals.max()
+                    if min_pos is not None and max_val / max(min_pos, 1e-9) > 100:
+                        fig.update_xaxes(type='log', tickprefix='R$ ', tickformat=',.0f', showexponent='none')
+                        scale_label = 'Log'
+                    else:
+                        fig.update_xaxes(type='linear', tickprefix='R$ ', tickformat=',.0f')
+        except Exception:
+            pass
+        fig.update_layout(title=f"Gaps de Oportunidade por Produto – Escala: {scale_label}")
+        # Escala dinâmica do eixo X (Receita Potencial)
+        try:
+            if 'potential_revenue' in gaps_data.columns:
+                vals = pd.to_numeric(gaps_data['potential_revenue'], errors='coerce').dropna()
+                if not vals.empty:
+                    min_pos = vals[vals > 0].min() if (vals > 0).any() else None
+                    max_val = vals.max()
+                    if min_pos is not None and max_val / max(min_pos, 1e-9) > 100:
+                        fig.update_xaxes(type='log', tickprefix='R$ ', tickformat=',.0f', showexponent='none')
+                    else:
+                        fig.update_xaxes(type='linear', tickprefix='R$ ', tickformat=',.0f')
+        except Exception:
+            pass
+        # Histograma com overlay opcional
+        try:
+            if view == 'overlay':
+                dist_fig = go.Figure()
+                if not gaps_baseline.empty and 'gap_score' in gaps_baseline.columns:
+                    hb = px.histogram(gaps_baseline, x='gap_score', nbins=20, histnorm='percent')
+                    for tr in hb.data:
+                        tr.name = 'Padrão'
+                        tr.opacity = 0.35
+                        tr.marker.color = '#6c757d'
+                        dist_fig.add_trace(tr)
+                if not gaps_current.empty and 'gap_score' in gaps_current.columns:
+                    hc = px.histogram(gaps_current, x='gap_score', nbins=20, histnorm='percent')
+                    for tr in hc.data:
+                        tr.name = 'Atual'
+                        tr.opacity = 0.6
+                        dist_fig.add_trace(tr)
+                dist_fig.update_layout(barmode='overlay', title='Distribuição do Score de Gap (%)')
+            else:
+                dist_data = gaps_baseline if view == 'baseline' else gaps_current
+                dist_fig = px.histogram(dist_data, x='gap_score', nbins=20, histnorm='percent', title='Distribuição do Score de Gap (%)')
+        except Exception:
+            dist_fig = go.Figure()
+        dist_fig.update_layout(template='plotly_white', height=300, bargap=0.05, xaxis_title='Score de Gap', yaxis_title='% de Produtos')
+        if not gaps_data.empty and 'gap_score' in gaps_data.columns:
+            qs = gaps_data['gap_score'].dropna()
+            q50 = float(qs.median()) if not qs.empty else None
+            q25 = float(qs.quantile(0.25)) if not qs.empty else None
+            q75 = float(qs.quantile(0.75)) if not qs.empty else None
+            for xval, color in [(40, '#f57c00'), (70, '#c62828')]:
+                dist_fig.add_shape(type='line', x0=xval, x1=xval, y0=0, y1=1, xref='x', yref='paper', line=dict(color=color, dash='dash'))
+            for xval, color in [(q25, '#6c757d'), (q50, '#0d6efd'), (q75, '#6c757d')]:
+                if xval is not None:
+                    dist_fig.add_shape(type='line', x0=xval, x1=xval, y0=0, y1=1, xref='x', yref='paper', line=dict(color=color, dash='dot'))
+        # Mini-resumo dinâmico
+        total_rows = int(len(gaps_data))
+        def _count_pct(cat):
+            if 'gap_category' in gaps_data.columns and total_rows > 0:
+                c = int((gaps_data['gap_category'].astype(str) == cat).sum())
+                p = 100.0 * c / total_rows
+                return c, p
+            return 0, 0.0
+        alto_c, alto_p = _count_pct('Alto')
+        medio_c, medio_p = _count_pct('Médio')
+        baixo_c, baixo_p = _count_pct('Baixo')
+        summary_children = dbc.Row([
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Alto", className="text-danger small mb-1"), html.H4(f"{alto_c} ({alto_p:.1f}%)", className="mb-0")])) , width=2),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Médio", className="text-warning small mb-1"), html.H4(f"{medio_c} ({medio_p:.1f}%)", className="mb-0")])) , width=2),
+            dbc.Col(dbc.Card(dbc.CardBody([html.H6("Baixo", className="text-secondary small mb-1"), html.H4(f"{baixo_c} ({baixo_p:.1f}%)", className="mb-0")])) , width=2),
+        ], className="mb-2")
+
+        # Pesos normalizados (dica)
+        rr = float(w_r or 0)
+        ff = float(w_f or 0)
+        mm = float(w_m or 0)
+        ss = rr + ff + mm if (rr + ff + mm) > 0 else 1.0
+        hint_children = [
+            html.P("Dica: os pesos são normalizados para somarem 100% automaticamente.", className="text-muted small mb-1"),
+            html.P(f"Pesos normalizados: R={rr/ss*100:.0f}%, F={ff/ss*100:.0f}%, M={mm/ss*100:.0f}%", className="text-muted small mb-0")
+        ]
+
+        # Badge: Incremental penalizado
+        try:
+            incr_total = float(gaps_data.get('incremental_revenue', pd.Series(dtype=float)).sum()) if 'incremental_revenue' in gaps_data.columns else 0.0
+        except Exception:
+            incr_total = 0.0
+        try:
+            pot_total = float(gaps_data['potential_revenue'].sum()) if 'potential_revenue' in gaps_data.columns else 0.0
+        except Exception:
+            pot_total = 0.0
+        penalized = (incr_total <= 1e-9) and (pot_total > 0) and (len(gaps_data) > 0)
+        penalty_children = []
+        if penalized:
+            # construir tooltip com base nas colunas de explicabilidade (se existirem)
+            try:
+                v_days = pd.to_numeric(gaps_data.get('v_recency_days', pd.Series(dtype=float)), errors='coerce')
+                conv = pd.to_numeric(gaps_data.get('conversion_rate', pd.Series(dtype=float)), errors='coerce')
+                pr = pd.to_numeric(gaps_data.get('penalty_recent_sales', pd.Series(dtype=float)), errors='coerce')
+                pc = pd.to_numeric(gaps_data.get('penalty_high_conv', pd.Series(dtype=float)), errors='coerce')
+            except Exception:
+                v_days = pd.Series(dtype=float); conv = pd.Series(dtype=float); pr = pd.Series(dtype=float); pc = pd.Series(dtype=float)
+
+            recency_days_med = int(v_days.dropna().median()) if not v_days.dropna().empty else None
+            conv_med = float(conv.dropna().median()) if not conv.dropna().empty else None
+            pr_med = float(pr.dropna().median()) if not pr.dropna().empty else 0.0
+            pc_med = float(pc.dropna().median()) if not pc.dropna().empty else 0.0
+
+            parts = []
+            if pr_med and pr_med > 0:
+                parts.append(f"Penalidade de recência aplicada (última venda ~{recency_days_med} dias)" if recency_days_med is not None else "Penalidade de recência aplicada")
+            if pc_med and pc_med > 0:
+                parts.append(f"Penalidade de conversão alta (taxa mediana ~{conv_med:.1f}%)" if conv_med is not None else "Penalidade de conversão alta")
+            if not parts:
+                parts = ["Penalidades ativas reduziram o incremento a zero"]
+            tooltip_text = "; ".join(parts)
+
+            penalty_children = [
+                html.Span([
+                    dbc.Badge("Incremental penalizado por conversão/recência", color="warning", className="me-2", style={"cursor": "help"}, title=tooltip_text),
+                    html.Small("Passe o mouse para ver detalhes das penalidades.", className="text-muted")
+                ])
+            ]
+
+        return kpis_children, fig, dist_fig, summary_children, hint_children, penalty_children
+    except Exception as e:
+        return (
+            dbc.Row([dbc.Col(dbc.Alert(f"Erro ao atualizar KPIs: {str(e)}", color='danger'))]),
+            {'data': [], 'layout': {'template': 'plotly_white'}},
+            {'data': [], 'layout': {'template': 'plotly_white'}},
+            [],
+            [html.P("Dica: os pesos são normalizados para somarem 100% automaticamente.", className="text-muted small mb-1"), html.P("Pesos normalizados: R=0%, F=0%, M=0%", className="text-muted small mb-0")],
+            []
+        )
+
+from utils.aggrid_config import build_column_defs, default_col_def, default_grid_options
+
 # Callback para tabela de clientes
 @app.callback(
-    Output('tabela-kpis-clientes', 'data'),
+    Output('tabela-kpis-clientes', 'rowData'),
     [Input('global-filtro-ano', 'value'),
      Input('global-filtro-mes', 'value'),
      Input('global-filtro-cliente', 'value'),
@@ -2143,10 +2144,13 @@ def update_gaps_table_size(top_n, filtro_ano, filtro_mes, filtro_cliente, filtro
      Input('global-filtro-canal', 'value'),
      Input('global-filtro-top-clientes', 'value'),
      Input('global-filtro-dias-sem-compra', 'value'),
+     Input('slider-r-weight', 'value'),
+     Input('slider-f-weight', 'value'),
+     Input('slider-v-weight', 'value'),
      Input('url', 'pathname')],
     prevent_initial_call=False
 )
-def update_clients_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, pathname):
+def update_clients_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, r_weight, f_weight, v_weight, pathname):
     """Atualiza tabela de KPIs por cliente com TODOS os filtros"""
     print(f"🔄 UPDATE_CLIENTS_TABLE executado - pathname: {pathname}")
     
@@ -2155,8 +2159,9 @@ def update_clients_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarqu
         if pathname and "/app/clients" not in pathname and "clients" not in pathname:
             print(f"❌ Não é página de clientes: {pathname}")
             return []
-            
+        
         vendas_df = load_vendas_data()
+        produtos_cotados_df = load_produtos_cotados_data()
         
         if vendas_df.empty:
             print("❌ Dados de vendas vazios")
@@ -2196,6 +2201,10 @@ def update_clients_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarqu
                     return 999
             
             clients_stats['dias_sem_compra'] = clients_stats['ultima_compra'].apply(calculate_days_safe)
+
+            # Formatar datas dd/mm/aaaa
+            clients_stats['primeira_compra'] = pd.to_datetime(clients_stats['primeira_compra'], errors='coerce').dt.strftime('%d/%m/%Y')
+            clients_stats['ultima_compra'] = pd.to_datetime(clients_stats['ultima_compra'], errors='coerce').dt.strftime('%d/%m/%Y')
             
             # Calcular mix de produtos (usar 'produto' em vez de 'cod_produto')
             mix_produtos = df_filtrado.groupby(['cod_cliente'])['produto'].nunique().reset_index()
@@ -2203,28 +2212,176 @@ def update_clients_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarqu
             
             # Merge dados
             result = clients_stats.merge(mix_produtos, on='cod_cliente', how='left')
-            
-            # Adicionar colunas extras com valores seguros
-            result['frequencia_media_compra'] = result['frequencia_compra'] * 30  # Simulado
-            result['percentual_mix'] = (result['mix_produtos'] / result['mix_produtos'].max() * 100).fillna(0)
-            result['produtos_cotados'] = 10  # Simulado
-            result['produtos_comprados'] = result['mix_produtos'].fillna(0)
-            result['perc_nao_comprado'] = ((result['produtos_cotados'] - result['produtos_comprados']) / result['produtos_cotados'] * 100).fillna(0)
-            result['unidades_negocio'] = 'UN1'  # Simulado
+
+            # Frequência média (nova): dias desde a 1ª compra até HOJE dividido pelo número de compras
+            try:
+                from datetime import datetime
+                df_dates = df_filtrado[['cod_cliente', 'data_faturamento']].copy()
+                df_dates['data_faturamento'] = pd.to_datetime(df_dates['data_faturamento'], errors='coerce')
+
+                def avg_from_first_to_today_over_n(series):
+                    s = series.dropna().sort_values()
+                    n = len(s)
+                    if n == 0:
+                        return None
+                    days_span = (datetime.now() - s.iloc[0]).days
+                    if days_span < 0:
+                        return None
+                    return days_span / n
+
+                freq_media = (
+                    df_dates.groupby('cod_cliente')['data_faturamento']
+                    .apply(avg_from_first_to_today_over_n)
+                    .reset_index(name='frequencia_media_compra')
+                )
+            except Exception:
+                freq_media = pd.DataFrame({'cod_cliente': [], 'frequencia_media_compra': []})
+
+            result = result.merge(freq_media, on='cod_cliente', how='left')
+            # Truncar casas decimais (ex.: 88.6 -> 88)
+            import numpy as np
+            result['frequencia_media_compra'] = pd.to_numeric(result['frequencia_media_compra'], errors='coerce').fillna(0)
+            result['frequencia_media_compra'] = np.floor(result['frequencia_media_compra']).astype(int)
+
+            # Percentual Mix: comprados únicos do cliente / total global (comprados ∪ cotados)
+            try:
+                # Escolher coluna de material/produto disponível
+                mat_col_vendas = 'material' if 'material' in vendas_df.columns else ('produto' if 'produto' in vendas_df.columns else None)
+                mat_col_filtrado = 'material' if 'material' in df_filtrado.columns else ('produto' if 'produto' in df_filtrado.columns else None)
+                mat_col_quotes = None
+                if isinstance(produtos_cotados_df, pd.DataFrame) and not produtos_cotados_df.empty:
+                    mat_col_quotes = 'material' if 'material' in produtos_cotados_df.columns else ('produto' if 'produto' in produtos_cotados_df.columns else None)
+
+                unique_purchased_global = set(vendas_df[mat_col_vendas].dropna().astype(str).unique()) if mat_col_vendas else set()
+                unique_quoted_global = set(produtos_cotados_df[mat_col_quotes].dropna().astype(str).unique()) if (isinstance(produtos_cotados_df, pd.DataFrame) and mat_col_quotes) else set()
+                universe_materials = unique_purchased_global.union(unique_quoted_global)
+                denom_universe = max(1, len(universe_materials))
+
+                if mat_col_filtrado:
+                    purchased_by_client = (
+                        df_filtrado.groupby('cod_cliente')[mat_col_filtrado]
+                        .apply(lambda s: set(s.dropna().astype(str).unique()))
+                        .reset_index(name='materiais_comprados_set')
+                    )
+                    result = result.merge(purchased_by_client, on='cod_cliente', how='left')
+                    result['percentual_mix'] = result['materiais_comprados_set'].apply(lambda st: (len(st) / denom_universe * 100) if isinstance(st, set) else 0.0)
+                else:
+                    result['percentual_mix'] = 0.0
+            except Exception:
+                result['percentual_mix'] = 0.0
+
+            # Produtos cotados e não comprados por cliente (% Não Comprado)
+            try:
+                if isinstance(produtos_cotados_df, pd.DataFrame) and not produtos_cotados_df.empty:
+                    pc = produtos_cotados_df.copy()
+                    # normalizar tipos
+                    pc['cod_cliente'] = pc.get('cod_cliente', pd.Series(dtype='object')).astype(str)
+                    # definir coluna de material/descrição para cotados
+                    mat_col_q = 'material' if 'material' in pc.columns else ('produto' if 'produto' in pc.columns else None)
+                    if mat_col_q is None:
+                        raise ValueError('Nenhuma coluna de material/produto em produtos_cotados')
+                    pc[mat_col_q] = pc[mat_col_q].astype(str)
+
+                    v = vendas_df.copy()
+                    v['cod_cliente'] = v.get('cod_cliente', pd.Series(dtype='object')).astype(str)
+                    mat_col_v = 'material' if 'material' in v.columns else ('produto' if 'produto' in v.columns else None)
+                    if mat_col_v is None:
+                        raise ValueError('Nenhuma coluna de material/produto em vendas')
+                    v[mat_col_v] = v[mat_col_v].astype(str)
+
+                    purchased_sets = (
+                        v.groupby('cod_cliente')[mat_col_v]
+                        .apply(lambda s: set(s.dropna().unique()))
+                    )
+
+                    def calc_not_bought_ratio(row_group):
+                        cid = row_group.name
+                        client_purchased = purchased_sets.get(cid, set())
+                        quoted = pd.Series(row_group[mat_col_q]).dropna().astype(str).unique().tolist()
+                        if not quoted:
+                            return 0.0
+                        not_bought = [m for m in quoted if m not in client_purchased]
+                        return (len(not_bought) / len(quoted)) * 100.0
+
+                    perc_nao = pc.groupby('cod_cliente').apply(calc_not_bought_ratio).reset_index(name='perc_nao_comprado')
+                    # Contadores auxiliares
+                    qt_cotados = pc.groupby('cod_cliente')[mat_col_q].nunique().reset_index(name='produtos_cotados')
+                    # Produtos comprados únicos já temos como mix_produtos
+                    result = result.merge(perc_nao, on='cod_cliente', how='left')
+                    result = result.merge(qt_cotados, on='cod_cliente', how='left')
+                    result['produtos_comprados'] = result['mix_produtos']
+                else:
+                    result['perc_nao_comprado'] = 0.0
+                    result['produtos_cotados'] = 0
+                    result['produtos_comprados'] = result['mix_produtos']
+            except Exception:
+                result['perc_nao_comprado'] = 0.0
+                result['produtos_cotados'] = 0
+                result['produtos_comprados'] = result['mix_produtos']
+
+            # Normalizar e limitar percentuais 0..100 e arredondar 0 casas
+            for colp in ['percentual_mix', 'perc_nao_comprado']:
+                result[colp] = pd.to_numeric(result[colp], errors='coerce').fillna(0)
+                result[colp] = result[colp].clip(lower=0, upper=100).round(0)
+
+            # RFV: normalização simples + pesos
+            try:
+                # R: recência inversa (menos dias = melhor), F: frequência (count), V: valor (total_vendas)
+                tmp = result.copy()
+                # Evitar divisão por zero
+                r = (tmp['dias_sem_compra'] * -1.0)  # quanto menor dias, maior valor
+                f = pd.to_numeric(tmp['frequencia_compra'], errors='coerce').fillna(0)
+                v = pd.to_numeric(tmp['total_vendas'], errors='coerce').fillna(0)
+
+                def norm_series(s):
+                    s = pd.to_numeric(s, errors='coerce').fillna(0)
+                    rng = s.max() - s.min()
+                    if rng == 0:
+                        return pd.Series([0]*len(s), index=s.index)
+                    return (s - s.min()) / rng
+
+                r_n = norm_series(r)
+                f_n = norm_series(f)
+                v_n = norm_series(v)
+                # normalizar pesos somando 1
+                total_w = (r_weight or 0) + (f_weight or 0) + (v_weight or 0)
+                if total_w == 0:
+                    r_w, f_w, v_w = 1/3, 1/3, 1/3
+                else:
+                    r_w, f_w, v_w = (r_weight or 0)/total_w, (f_weight or 0)/total_w, (v_weight or 0)/total_w
+
+                result['rfv_score'] = (r_n*r_w + f_n*f_w + v_n*v_w) * 100
+                # Classificação simples por quantis
+                try:
+                    q1 = result['rfv_score'].quantile(0.66)
+                    q2 = result['rfv_score'].quantile(0.33)
+                except Exception:
+                    q1, q2 = 66, 33
+                def rfv_classify(x):
+                    if x >= q1:
+                        return 'Alta'
+                    elif x >= q2:
+                        return 'Média'
+                    else:
+                        return 'Baixa'
+                result['rfv_class'] = result['rfv_score'].apply(rfv_classify)
+            except Exception:
+                result['rfv_score'] = 0
+                result['rfv_class'] = 'Média'
             
             # Garantir que não há valores None/NaN problemáticos
             result = result.fillna(0)
             
             # Converter para tipos seguros
             numeric_cols = ['total_vendas', 'dias_sem_compra', 'frequencia_compra', 'frequencia_media_compra', 
-                           'mix_produtos', 'percentual_mix', 'produtos_cotados', 'produtos_comprados', 'perc_nao_comprado']
+                           'mix_produtos', 'percentual_mix', 'produtos_cotados', 'produtos_comprados', 'perc_nao_comprado', 'rfv_score']
             
             for col in numeric_cols:
                 if col in result.columns:
                     result[col] = pd.to_numeric(result[col], errors='coerce').fillna(0)
             
-            # APLICAR FILTRO TOP CLIENTES AQUI na tabela final
-            if filtro_top_clientes and isinstance(filtro_top_clientes, (int, float)) and filtro_top_clientes > 0:
+            # APLICAR FILTRO TOP CLIENTES AQUI na tabela final (somente se especificado)
+            if filtro_top_clientes is not None and isinstance(filtro_top_clientes, (int, float)) and filtro_top_clientes > 0:
                 print(f"🔍 Aplicando filtro TOP {filtro_top_clientes} clientes na tabela final")
                 # Ordenar por total_vendas e pegar os TOP clientes
                 result = result.sort_values('total_vendas', ascending=False).head(int(filtro_top_clientes))
@@ -2234,6 +2391,9 @@ def update_clients_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarqu
             
             # Converter para dict records de forma segura
             try:
+                # Retirar colunas auxiliares de sets
+                if 'materiais_comprados_set' in result.columns:
+                    result = result.drop(columns=['materiais_comprados_set'])
                 result_dict = result.to_dict('records')
                 # Validar que não há objetos estranhos
                 for record in result_dict:
@@ -2264,16 +2424,16 @@ def update_clients_table(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarqu
      Input('global-filtro-cliente', 'value'),
      Input('global-filtro-hierarquia', 'value'),
      Input('global-filtro-canal', 'value'),
-     Input('global-filtro-top-clientes', 'value'),
-     Input('global-filtro-dias-sem-compra', 'value'),
-     Input('tabela-kpis-clientes', 'derived_virtual_data'),  # Dados filtrados da tabela
+    Input('global-filtro-top-clientes', 'value'),
+    Input('global-filtro-dias-sem-compra', 'value'),
+    Input('tabela-kpis-clientes', 'virtualRowData'),  # Subconjunto filtrado/ordenado do AG Grid
      Input('url', 'pathname')],
     prevent_initial_call=False
 )
-def update_clients_status_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, derived_virtual_data, pathname):
+def update_clients_status_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, virtual_row_data, pathname):
     """Atualiza gráfico de status dos clientes"""
     print(f"🔄 UPDATE_CLIENTS_STATUS_CHART executado - pathname: {pathname}")
-    print(f"   Dados filtrados da tabela recebidos: {type(derived_virtual_data)}, qtd: {len(derived_virtual_data) if derived_virtual_data else 0}")
+    print(f"   Dados filtrados da tabela recebidos: {type(virtual_row_data)}, qtd: {len(virtual_row_data) if virtual_row_data else 0}")
     
     try:
         # Só processa se estiver na página de clientes
@@ -2282,15 +2442,22 @@ def update_clients_status_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_h
             return {}
         
         # PRIORIDADE 1: Se houver dados filtrados da tabela, usa eles
-        if derived_virtual_data and len(derived_virtual_data) > 0:
+        if virtual_row_data and len(virtual_row_data) > 0:
             print("✅ Usando dados filtrados da tabela para o gráfico")
             import pandas as pd
-            df_filtrado = pd.DataFrame(derived_virtual_data)
-            
+            df_filtrado = pd.DataFrame(virtual_row_data)
         else:
             # PRIORIDADE 2: Usar filtros globais
             print("✅ Usando filtros globais para o gráfico")
             vendas_df = load_vendas_data()
+            
+            if vendas_df.empty:
+                print("❌ Dados de vendas vazios")
+                return {}
+            
+            # Aplica filtros - CORREÇÃO: passar filtro_top_clientes e filtro_dias_sem_compra corretamente
+            df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
+                                      filtro_hierarquia, filtro_canal, filtro_top_clientes, filtro_dias_sem_compra)
             
             if vendas_df.empty:
                 print("❌ Dados de vendas vazios")
@@ -2478,557 +2645,1075 @@ def update_clients_status_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_h
         return fig
 
 # Callback para gráficos de produtos
+
+"""Ajustes de paginação e contador para a tabela de clientes"""
+# 1) Ajustar tamanho de página com suporte a "Todos"
 @app.callback(
-    [Output('grafico-bolhas-produtos', 'figure'),
-     Output('grafico-pareto-produtos', 'figure')],
+    Output('tabela-kpis-clientes', 'dashGridOptions'),
+    [Input('clients-page-size', 'value'),
+     Input('tabela-kpis-clientes', 'virtualRowData')],
+    prevent_initial_call=False
+)
+def set_clients_table_page_size(size, derived_rows):
+    try:
+        # Quando usuário seleciona "Todos", usar o total de linhas filtradas
+        if size == 'all':
+            total = len(derived_rows) if derived_rows else 0
+            page_size = max(total, 1)
+        else:
+            page_size = int(size) if size else 10
+        return {
+            "pagination": True,
+            "paginationPageSize": page_size,
+            "rowSelection": "multiple",
+            "animateRows": True,
+            "ensureDomOrder": True,
+            "domLayout": "autoHeight",
+        }
+    except Exception:
+        return {
+            "pagination": True,
+            "paginationPageSize": 10,
+            "rowSelection": "multiple",
+            "animateRows": True,
+            "ensureDomOrder": True,
+            "domLayout": "autoHeight",
+        }
+
+# 2) Exibir contador "Mostrando X de Y"
+@app.callback(
+    Output('clients-counter', 'children'),
+    [Input('tabela-kpis-clientes', 'virtualRowData'),
+     Input('tabela-kpis-clientes', 'rowData')],
+    prevent_initial_call=False
+)
+def update_clients_counter(derived_rows, full_rows):
+    try:
+        total = len(full_rows) if full_rows else 0
+        filtrados = len(derived_rows) if derived_rows else total
+        if total == 0:
+            return "Nenhum cliente para exibir"
+        return f"Mostrando {filtrados:,} de {total:,} clientes"
+    except Exception:
+        return ""
+
+
+# ==========================
+# Clientes: seleção de colunas (UI + preset)
+# ==========================
+
+# Preset padrão para clientes (espelha a tabela inicial)
+CLIENTES_DEFAULT_COL_PRESET = [
+    'cod_cliente', 'cliente', 'rfv_score', 'rfv_class', 'total_vendas', 'ultima_compra',
+    'frequencia_compra', 'frequencia_media_compra', 'dias_sem_compra', 'mix_produtos',
+    'percentual_mix', 'produtos_cotados', 'produtos_comprados', 'perc_nao_comprado'
+]
+
+@app.callback(
+    Output('clientes-column-select', 'value'),
+    [Input('url', 'pathname')],
+    [State('clientes-column-preset', 'data')],
+    prevent_initial_call=False
+)
+def init_clientes_column_select(pathname, local_store_data):
+    try:
+        if pathname not in {"/app/clients", "/app/clients/", "/clients", "/clients/"}:
+            return dash.no_update
+        # Prioriza localStorage
+        if isinstance(local_store_data, list) and local_store_data:
+            return local_store_data
+        # Depois banco por usuário
+        from utils.security import get_current_username
+        username = get_current_username() or 'anon'
+        key = f"clientes_col_preset::{username}"
+        db_val = get_setting(key, None)
+        if isinstance(db_val, list) and db_val:
+            return db_val
+        return CLIENTES_DEFAULT_COL_PRESET
+    except Exception:
+        return CLIENTES_DEFAULT_COL_PRESET
+
+@app.callback(
+    Output('clientes-column-preset', 'data', allow_duplicate=True),
+    [Input('btn-save-clientes-col-preset', 'n_clicks'), Input('btn-reset-clientes-col-preset', 'n_clicks')],
+    [State('clientes-column-select', 'value')],
+    prevent_initial_call=True
+)
+def save_clientes_column_preset(n_save, n_reset, selected_cols):
+    ctx = callback_context
+    if not ctx.triggered:
+        return dash.no_update
+    trig = ctx.triggered[0]['prop_id'].split('.')[0]
+    from utils.security import get_current_username
+    username = get_current_username() or 'anon'
+    key = f"clientes_col_preset::{username}"
+    if trig == 'btn-reset-clientes-col-preset':
+        try:
+            delete_setting(key)
+        except Exception:
+            pass
+        return []  # limpar store; init recarrega default
+    cols = selected_cols if isinstance(selected_cols, list) else []
+    try:
+        save_setting(key, cols)
+    except Exception:
+        pass
+    return cols
+
+def _clientes_build_columns(selected_cols):
+    """Constroi lista de colunas do dash_table baseado no seletor."""
+    all_columns = [
+        {"name": "Código", "id": "cod_cliente"},
+        {"name": "Cliente", "id": "cliente"},
+        {"name": "RFV Score", "id": "rfv_score", "type": "numeric", "format": {"specifier": ",.0f"}},
+        {"name": "RFV Classe", "id": "rfv_class"},
+        {"name": "Total Vendas", "id": "total_vendas", "type": "numeric", "format": {"specifier": ",.2f"}},
+        {"name": "Última Compra", "id": "ultima_compra"},
+        {"name": "Freq. Compras", "id": "frequencia_compra", "type": "numeric"},
+        {"name": "Freq. Média (dias)", "id": "frequencia_media_compra", "type": "numeric", "format": {"specifier": ",.0f"}},
+        {"name": "Dias sem Compra", "id": "dias_sem_compra", "type": "numeric"},
+        {"name": "Mix Produtos", "id": "mix_produtos", "type": "numeric"},
+        {"name": "% Mix", "id": "percentual_mix", "type": "numeric", "format": {"specifier": ",.0f"}},
+        {"name": "Prod. Cotados", "id": "produtos_cotados", "type": "numeric"},
+        {"name": "Prod. Comprados", "id": "produtos_comprados", "type": "numeric"},
+        {"name": "% Não Comprado", "id": "perc_nao_comprado", "type": "numeric", "format": {"specifier": ",.0f"}},
+    ]
+    if not selected_cols:
+        return all_columns
+    keep = set(selected_cols)
+    return [col for col in all_columns if col['id'] in keep]
+
+# Atualizar colunas da tabela de clientes quando o seletor mudar
+@app.callback(
+    Output('tabela-kpis-clientes', 'columnDefs'),
+    [Input('clientes-column-select', 'value')],
+    prevent_initial_call=False
+)
+def update_clientes_table_columns(selected_cols):
+    try:
+        # Map DataTable column spec to AG Grid columnDefs
+        cols = _clientes_build_columns(selected_cols)
+        col_defs = []
+        for c in cols:
+            col_defs.append({
+                "headerName": c.get("name", c.get("id")),
+                "field": c.get("id"),
+                "type": "numericColumn" if c.get("type") == "numeric" else None,
+                "filter": "agNumberColumnFilter" if c.get("type") == "numeric" else "agTextColumnFilter",
+            })
+        return col_defs
+    except Exception:
+        # Fallback to default preset
+        cols = _clientes_build_columns(CLIENTES_DEFAULT_COL_PRESET)
+        return [{"headerName": c.get("name", c.get("id")), "field": c.get("id")} for c in cols]
+
+
+# Gráfico diagnóstico: % Não Comprado x % Mix
+@app.callback(
+    Output('grafico-clientes-diagnostico', 'figure'),
+    [Input('tabela-kpis-clientes', 'virtualRowData'),
+     Input('tabela-kpis-clientes', 'rowData')],
+    prevent_initial_call=False
+)
+def update_diag_scatter(derived_data, full_data):
+    import pandas as pd
+    import plotly.graph_objects as go
+    # Preferir os dados filtrados da tabela; se não houver, usar os dados completos
+    table_data = derived_data if (derived_data and len(derived_data) > 0) else full_data
+    if not table_data:
+        return go.Figure()
+    df = pd.DataFrame(table_data)
+    x = pd.to_numeric(df.get('percentual_mix', 0), errors='coerce').fillna(0)
+    y = pd.to_numeric(df.get('perc_nao_comprado', 0), errors='coerce').fillna(0)
+    text = df.get('cliente', ['']*len(df))
+    fig = go.Figure(data=go.Scatter(
+        x=x,
+        y=y,
+        mode='markers',
+        text=text,
+        marker=dict(color='#1f77b4', size=9, opacity=0.8, line=dict(width=0.5, color='#333')),
+        hovertemplate='%{text}<br>%Mix: %{x:.0f}%<br>%Não Comprado: %{y:.0f}%<extra></extra>'
+    ))
+    fig.update_layout(
+        template='plotly_white',
+        xaxis_title='% Mix',
+        yaxis_title='% Não Comprado',
+        margin=dict(l=20, r=20, t=10, b=20)
+    )
+    fig.update_xaxes(range=[0, 100])
+    fig.update_yaxes(range=[0, 100])
+    return fig
+
+"""Gráfico de Pareto - Clientes (com cores por RFV normalizado)"""
+@app.callback(
+    Output('grafico-pareto-clientes', 'figure'),
+    [Input('tabela-kpis-clientes', 'virtualRowData'),
+     Input('tabela-kpis-clientes', 'rowData'),
+     Input('slider-r-weight', 'value'),
+     Input('slider-f-weight', 'value'),
+     Input('slider-v-weight', 'value'),
+     Input('global-filtro-ano', 'value'),
+     Input('global-filtro-mes', 'value'),
+     Input('global-filtro-cliente', 'value'),
+     Input('global-filtro-hierarquia', 'value'),
+     Input('global-filtro-canal', 'value'),
+     Input('global-filtro-top-clientes', 'value'),
+     Input('global-filtro-dias-sem-compra', 'value'),
+     Input('url', 'pathname')],
+    prevent_initial_call=False
+)
+def update_clients_pareto_chart(derived_rows, full_rows,
+                                wR_in, wF_in, wV_in,
+                                filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia,
+                                filtro_canal, filtro_top_clientes, filtro_dias_sem_compra,
+                                pathname):
+    import pandas as pd
+    import numpy as np
+    import plotly.graph_objects as go
+
+    # Render only on Clients page
+    if pathname and "/app/clients" not in pathname and "clients" not in pathname:
+        return go.Figure()
+
+    try:
+        # Prefer table-derived data (already filtered and with rfv_score/total_vendas)
+        table_data = derived_rows if (derived_rows and len(derived_rows) > 0) else full_rows
+        df = None
+        if table_data and len(table_data) > 0:
+            df = pd.DataFrame(table_data).copy()
+            # Ensure required columns
+            if 'cliente' in df.columns and 'total_vendas' in df.columns:
+                # RFV: if missing, compute a quick normalized proxy from available columns
+                if 'rfv_score' not in df.columns:
+                    # Try build simple RFV from dias_sem_compra (R), frequencia_compra (F), total_vendas (M)
+                    r = -pd.to_numeric(df.get('dias_sem_compra', 0), errors='coerce').fillna(0)
+                    f = pd.to_numeric(df.get('frequencia_compra', 0), errors='coerce').fillna(0)
+                    m = pd.to_numeric(df.get('total_vendas', 0), errors='coerce').fillna(0)
+                    def norm(s):
+                        s = pd.to_numeric(s, errors='coerce').fillna(0)
+                        rng = s.max() - s.min()
+                        return (s - s.min())/rng if rng != 0 else pd.Series(0, index=s.index)
+                    wR = float(wR_in or 0); wF = float(wF_in or 0); wV = float(wV_in or 0)
+                    total = wR + wF + wV if (wR + wF + wV) > 0 else 1.0
+                    df['rfv_score'] = (norm(r)*(wR/total) + norm(f)*(wF/total) + norm(m)*(wV/total)) * 100
+            else:
+                df = None
+
+        # If table data not usable, fallback to raw vendas with global filters
+        if df is None or df.empty:
+            vendas_df = load_vendas_data()
+            if vendas_df is None or vendas_df.empty:
+                fig = go.Figure()
+                fig.add_annotation(text="Sem dados para Pareto de Clientes", xref="paper", yref="paper", x=0.5, y=0.5)
+                fig.update_layout(template='plotly_white', height=400)
+                return fig
+            dfv = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia,
+                                filtro_canal, filtro_top_clientes, filtro_dias_sem_compra, metrica_type='faturamento')
+            if dfv is None or dfv.empty:
+                fig = go.Figure()
+                fig.add_annotation(text="Sem dados após filtros", xref="paper", yref="paper", x=0.5, y=0.5)
+                fig.update_layout(template='plotly_white', height=400)
+                return fig
+            # Build per-client metrics
+            date_col = None
+            for c in ['data_faturamento', 'data', 'data_venda']:
+                if c in dfv.columns:
+                    date_col = c; break
+            tmp = dfv.copy()
+            tmp[date_col] = pd.to_datetime(tmp[date_col], errors='coerce') if date_col else pd.NaT
+            grp = tmp.groupby(['cod_cliente', 'cliente'], dropna=False)
+            total_vendas = grp['vlr_rol'].sum().rename('total_vendas') if 'vlr_rol' in tmp.columns else grp.size().rename('total_vendas')
+            freq = grp.size().rename('frequencia_compra')
+            last_date = grp[date_col].max().rename('ultima_data') if date_col else pd.Series(index=total_vendas.index, dtype='datetime64[ns]')
+            from datetime import datetime
+            today = pd.Timestamp.today().normalize()
+            dias_sem = (today - last_date).dt.days.rename('dias_sem_compra') if date_col else pd.Series(0, index=total_vendas.index)
+            df = pd.concat([total_vendas, freq, dias_sem], axis=1).reset_index()
+            # Compute RFV
+            def norm(s):
+                s = pd.to_numeric(s, errors='coerce').fillna(0)
+                rng = s.max() - s.min()
+                return (s - s.min())/rng if rng != 0 else pd.Series(0, index=s.index)
+            wR = float(wR_in or 0); wF = float(wF_in or 0); wV = float(wV_in or 0)
+            total = wR + wF + wV if (wR + wF + wV) > 0 else 1.0
+            r = -pd.to_numeric(df.get('dias_sem_compra', 0), errors='coerce').fillna(0)
+            f = pd.to_numeric(df.get('frequencia_compra', 0), errors='coerce').fillna(0)
+            m = pd.to_numeric(df.get('total_vendas', 0), errors='coerce').fillna(0)
+            df['rfv_score'] = (norm(r)*(wR/total) + norm(f)*(wF/total) + norm(m)*(wV/total)) * 100
+
+        # Prepare Pareto
+        if df is None or df.empty:
+            fig = go.Figure(); fig.update_layout(template='plotly_white', height=400); return fig
+        df = df[['cliente', 'total_vendas', 'rfv_score']].copy()
+        df['total_vendas'] = pd.to_numeric(df['total_vendas'], errors='coerce').fillna(0)
+        df = df.sort_values('total_vendas', ascending=False).reset_index(drop=True)
+        # Top N padrão = 10, mas respeita filtro global se fornecido (>0)
+        try:
+            top_n = int(filtro_top_clientes) if (filtro_top_clientes and int(filtro_top_clientes) > 0) else 10
+        except Exception:
+            top_n = 10
+        df = df.head(top_n)
+        df['faturamento_acumulado'] = df['total_vendas'].cumsum()
+        total_sum = df['total_vendas'].sum()
+        df['percentual_acumulado'] = (df['faturamento_acumulado'] / total_sum * 100) if total_sum > 0 else 0
+
+        # Normalizar RFV para cores (0-100 -> 0-1)
+        rfv = pd.to_numeric(df['rfv_score'], errors='coerce').fillna(0)
+        r_min, r_max = float(rfv.min()), float(rfv.max())
+        denom = (r_max - r_min) if (r_max - r_min) != 0 else 1.0
+        rfv_norm = (rfv - r_min) / denom
+
+        # Build figure
+        fig = go.Figure()
+        # Bars with heatmap colorscale (RFV)
+        fig.add_trace(go.Bar(
+            x=df['cliente'],
+            y=df['total_vendas'],
+            name='Faturamento',
+            yaxis='y',
+            marker=dict(
+                color=rfv_norm,
+                colorscale='RdYlGn',
+                cmin=0,
+                cmax=1,
+                colorbar=dict(title='RFV (norm)', x=1.08, xanchor='left', thickness=12, len=0.6)
+            ),
+            hovertemplate='<b>%{x}</b><br>Faturamento: R$ %{y:,.0f}<br>RFV: %{customdata[0]:.0f}<extra></extra>',
+            customdata=np.c_[df['rfv_score']]
+        ))
+        # Cumulative percent line
+        fig.add_trace(go.Scatter(
+            x=df['cliente'],
+            y=df['percentual_acumulado'],
+            mode='lines+markers',
+            name='% Acumulado',
+            yaxis='y2',
+            line=dict(color='#dc3545', width=3),
+            marker=dict(size=8, color='#dc3545'),
+            hovertemplate='<b>%{x}</b><br>% Acumulado: %{y:.1f}%<extra></extra>'
+        ))
+
+        fig.update_layout(
+            title='Análise de Pareto - Faturamento por Cliente',
+            height=550,
+            template='plotly_white',
+            showlegend=False,
+            yaxis=dict(title='Faturamento (R$)', tickformat=',.0f'),
+            yaxis2=dict(title='% Acumulado', overlaying='y', side='right', range=[0, 100], tickformat='.0f', ticksuffix='%'),
+            xaxis=dict(title='Cliente', tickangle=45),
+            margin=dict(l=80, r=120, t=80, b=140)
+        )
+
+        # 80% reference line on secondary axis
+        fig.add_hline(y=80, yref='y2', line_dash='dash', line_color='red')
+
+        return fig
+    except Exception as e:
+        import traceback
+        print(f"❌ Erro no Pareto de Clientes: {e}")
+        traceback.print_exc()
+        fig = go.Figure()
+        fig.add_annotation(text=f"Erro: {str(e)}", xref='paper', yref='paper', x=0.5, y=0.5)
+        fig.update_layout(template='plotly_white', height=400)
+        return fig
+
+# Exportar linhas selecionadas para Excel
+@app.callback(
+    Output('download-xlsx-clientes', 'data'),
+    Input('btn-export-excel-clientes', 'n_clicks'),
+    State('tabela-kpis-clientes', 'virtualRowData'),
+    State('tabela-kpis-clientes', 'selectedRows'),
+    prevent_initial_call=True
+)
+def export_clients_xlsx(n_clicks, rows, selected_row_indices):
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    import pandas as pd
+    from dash import dcc
+    if not rows:
+        return dash.no_update
+    df = pd.DataFrame(rows)
+    try:
+        # Se houver linhas selecionadas, exportar apenas as selecionadas (AG Grid fornece linhas completas, não índices)
+        if isinstance(selected_row_indices, (list, tuple)) and len(selected_row_indices) > 0:
+            try:
+                import pandas as pd
+                sel_df = pd.DataFrame(list(selected_row_indices))
+                # Preferir chave primária 'cod_cliente' para cruzar
+                if 'cod_cliente' in df.columns and 'cod_cliente' in sel_df.columns:
+                    df = df[df['cod_cliente'].isin(sel_df['cod_cliente'])]
+                else:
+                    # Fallback: interseção por todas as colunas em comum
+                    common = [c for c in sel_df.columns if c in df.columns]
+                    if common:
+                        df = df.merge(sel_df[common].drop_duplicates(), on=common, how='inner')
+            except Exception:
+                pass
+
+        def to_xlsx(bytes_io):
+            with pd.ExcelWriter(bytes_io, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False, sheet_name='Clientes')
+
+        return dcc.send_bytes(to_xlsx, 'clientes.xlsx')
+    except Exception as e:
+        print(f"❌ Erro ao gerar Excel: {e}")
+        import traceback
+        traceback.print_exc()
+        return dash.no_update
+
+# Exibir pesos normalizados RFV (clientes)
+@app.callback(
+    Output('clients-rfv-weights-display', 'children'),
+    [Input('slider-r-weight', 'value'),
+     Input('slider-f-weight', 'value'),
+     Input('slider-v-weight', 'value')],
+    prevent_initial_call=False
+)
+def display_normalized_rfv_clients(wR_in, wF_in, wV_in):
+    try:
+        wR = float(wR_in or 0)
+        wF = float(wF_in or 0)
+        wV = float(wV_in or 0)
+        total = wR + wF + wV
+        if total <= 0:
+            return "Pesos normalizados: R=0%, F=0%, M=0%"
+        wR_n = wR / total
+        wF_n = wF / total
+        wV_n = wV / total
+        return f"Pesos normalizados: R={wR_n*100:.0f}%, F={wF_n*100:.0f}%, M={wV_n*100:.0f}%"
+    except Exception:
+        return "Pesos normalizados: R=33%, F=33%, M=34%"
+
+"""Download PDF por Cliente (Clientes)"""
+@app.callback(
+    Output('download-pdf-clientes', 'data'),
+    Input('btn-pdf-cliente-clientes', 'n_clicks'),
+    State('tabela-kpis-clientes', 'virtualRowData'),
+    State('tabela-kpis-clientes', 'selectedRows'),
+    prevent_initial_call=True
+)
+def download_pdf_clientes(n_clicks, derived_rows, selected_rows):
+    """Gera um PDF simples com os dados dos clientes selecionados (ou todos os filtrados)."""
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    from dash import dcc
+    import pandas as pd
+    import io
+    from reportlab.lib.pagesizes import A4
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.lib import colors
+
+    if not derived_rows:
+        return dash.no_update
+
+    df = pd.DataFrame(derived_rows)
+    # Se houver seleção, filtrar pelas linhas selecionadas (AG Grid: linhas completas)
+    if isinstance(selected_rows, (list, tuple)) and len(selected_rows) > 0:
+        try:
+            sel_df = pd.DataFrame(list(selected_rows))
+            if 'cod_cliente' in df.columns and 'cod_cliente' in sel_df.columns:
+                df = df[df['cod_cliente'].isin(sel_df['cod_cliente'])]
+            else:
+                common = [c for c in sel_df.columns if c in df.columns]
+                if common:
+                    df = df.merge(sel_df[common].drop_duplicates(), on=common, how='inner')
+        except Exception:
+            pass
+
+    # Restringir colunas relevantes e formatar
+    preferred_cols = [
+        'cod_cliente', 'cliente', 'rfv_score', 'rfv_class', 'total_vendas',
+        'ultima_compra', 'frequencia_compra', 'frequencia_media_compra',
+        'dias_sem_compra', 'percentual_mix', 'perc_nao_comprado'
+    ]
+    cols = [c for c in preferred_cols if c in df.columns]
+    if not cols:
+        cols = list(df.columns)
+
+    # Ordenar por maior faturamento se existir
+    if 'total_vendas' in df.columns:
+        df = df.sort_values('total_vendas', ascending=False)
+
+    # Preparar PDF em memória
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=54, bottomMargin=36)
+    styles = getSampleStyleSheet()
+    story = []
+
+    story.append(Paragraph("Relatório por Cliente", styles['Title']))
+    story.append(Paragraph("Laura Representações - WEG", styles['Normal']))
+    story.append(Spacer(1, 12))
+
+    # Tabela de dados (limitando a 200 linhas para manter tamanho razoável)
+    max_rows = 200
+    df_print = df[cols].head(max_rows).copy()
+
+    # Formatações leves
+    if 'total_vendas' in df_print.columns:
+        df_print['total_vendas'] = pd.to_numeric(df_print['total_vendas'], errors='coerce').fillna(0.0).map(lambda x: f"R$ {x:,.2f}")
+    if 'percentual_mix' in df_print.columns:
+        df_print['percentual_mix'] = pd.to_numeric(df_print['percentual_mix'], errors='coerce').fillna(0.0).map(lambda x: f"{x:.0f}%")
+    if 'perc_nao_comprado' in df_print.columns:
+        df_print['perc_nao_comprado'] = pd.to_numeric(df_print['perc_nao_comprado'], errors='coerce').fillna(0.0).map(lambda x: f"{x:.0f}%")
+
+    table_data = [
+        [
+            'Código', 'Cliente', 'RFV', 'Classe', 'Total Vendas', 'Última Compra',
+            'Freq. Compras', 'Freq. Média (dias)', 'Dias s/ Compra', '% Mix', '% Não Compr.'
+        ]
+    ]
+    for _, row in df_print.iterrows():
+        table_data.append([
+            row.get('cod_cliente', ''),
+            row.get('cliente', ''),
+            row.get('rfv_score', ''),
+            row.get('rfv_class', ''),
+            row.get('total_vendas', ''),
+            row.get('ultima_compra', ''),
+            row.get('frequencia_compra', ''),
+            row.get('frequencia_media_compra', ''),
+            row.get('dias_sem_compra', ''),
+            row.get('percentual_mix', ''),
+            row.get('perc_nao_comprado', '')
+        ])
+
+    table = Table(table_data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1f77b4')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 9),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.beige]),
+    ]))
+
+    story.append(table)
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(f"Total de clientes listados: {len(df_print)}", styles['Italic']))
+
+    doc.build(story)
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+
+    # Nome do arquivo
+    filename = 'clientes_relatorio.pdf'
+
+    return dcc.send_bytes(pdf_bytes, filename)
+
+"""Unificar controles da tabela de clientes para evitar outputs duplicados"""
+@app.callback(
+    Output('tabela-kpis-clientes', 'selectedRows'),
+    [Input('btn-select-all-clientes', 'n_clicks'),
+     Input('btn-deselect-all-clientes', 'n_clicks')],
+    State('tabela-kpis-clientes', 'rowData'),
+    prevent_initial_call=True
+)
+def manage_clients_table_controls(select_clicks, deselect_clicks, table_data):
+    ctx = callback_context
+    if not ctx.triggered:
+        raise dash.exceptions.PreventUpdate
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    if button_id == 'btn-select-all-clientes' and select_clicks:
+        # Seleciona todas as linhas: passar a lista inteira (AG Grid usa objetos, mas selectedRows recebe linhas, não índices)
+        return table_data or []
+    elif button_id == 'btn-deselect-all-clientes' and deselect_clicks:
+        return []
+    else:
+        return dash.no_update
+
+# Limpar filtros e ordenação do AG Grid (Clientes)
+@app.callback(
+    [Output('tabela-kpis-clientes', 'filterModel'),
+     Output('tabela-kpis-clientes', 'sortModel')],
+    Input('btn-clear-filters-clientes', 'n_clicks'),
+    prevent_initial_call=True
+)
+def clear_clients_grid_filters(n_clicks):
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+    # Zera filtros e ordenação
+    return {}, []
+
+# Persistir estado do AG Grid (Clientes) no armazenamento local
+@app.callback(
+    Output('clientes-grid-state', 'data'),
+    [
+        Input('tabela-kpis-clientes', 'filterModel'),
+        Input('tabela-kpis-clientes', 'sortModel'),
+        Input('tabela-kpis-clientes', 'columnState'),
+    ],
+    prevent_initial_call=True
+)
+def persist_clients_grid_state(filter_model, sort_model, column_state):
+    try:
+        return {
+            'filterModel': filter_model or {},
+            'sortModel': sort_model or [],
+            'columnState': column_state or []
+        }
+    except Exception:
+        return {}
+
+# Restaurar estado do AG Grid (Clientes) ao entrar na página
+@app.callback(
+    [
+        Output('tabela-kpis-clientes', 'filterModel', allow_duplicate=True),
+        Output('tabela-kpis-clientes', 'sortModel', allow_duplicate=True),
+        Output('tabela-kpis-clientes', 'columnState', allow_duplicate=True),
+    ],
+    Input('url', 'pathname'),
+    State('clientes-grid-state', 'data'),
+    prevent_initial_call='initial_duplicate'
+)
+def restore_clients_grid_state(pathname, grid_state):
+    try:
+        is_clients = bool(pathname and '/app/clients' in pathname)
+        if not is_clients or not isinstance(grid_state, dict):
+            return dash.no_update, dash.no_update, dash.no_update
+        return (
+            grid_state.get('filterModel') or {},
+            grid_state.get('sortModel') or [],
+            grid_state.get('columnState') or []
+        )
+    except Exception:
+        return dash.no_update, dash.no_update, dash.no_update
+
+@app.callback(
+    Output('grafico-bolhas-produtos', 'figure'),
     [Input('global-filtro-ano', 'value'),
      Input('global-filtro-mes', 'value'),
      Input('global-filtro-cliente', 'value'),
      Input('global-filtro-hierarquia', 'value'),
      Input('global-filtro-canal', 'value'),
-     Input('global-filtro-top-clientes', 'value'),  # CORREÇÃO: Usar filtro global
+     Input('global-filtro-top-clientes', 'value'),
      Input('filter-top-produtos', 'value'),
      Input('url', 'pathname')],
     prevent_initial_call=False
 )
-def update_products_charts(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, top_produtos, pathname):
-    """Atualiza gráficos da página de produtos"""
-    
-    print(f"🚀 === UPDATE_PRODUCTS_CHARTS INICIADO ===")
-    print(f"   📍 Pathname: {pathname}")
-    print(f"   📊 Parâmetros recebidos:")
-    print(f"      - filtro_ano: {filtro_ano}")
-    print(f"      - filtro_mes: {filtro_mes}")
-    print(f"      - top_produtos: {top_produtos}")
-    
-    # IMPORTS NECESSÁRIOS NO INÍCIO DA FUNÇÃO
-    import plotly.express as px
+def update_products_bubble_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, filtro_top_clientes, top_produtos, pathname):
+    """Atualiza APENAS o gráfico de bolhas na página de Produtos."""
     import plotly.graph_objects as go
     import numpy as np
-    
-    # Importar scipy com fallback
+    # Restringe execução à página de Produtos
+    is_products_page = bool(pathname and ("/app/products" in pathname or "products" in pathname))
+    if not is_products_page:
+        from dash.exceptions import PreventUpdate
+        raise PreventUpdate
+
     try:
-        from scipy import stats
-        SCIPY_AVAILABLE = True
-        print("✅ SciPy carregado com sucesso")
-    except ImportError:
-        print("⚠️ SciPy não disponível, usando análise estatística básica")
-        SCIPY_AVAILABLE = False
-        # Fallback: implementar z-score manualmente
-        def zscore_fallback(data):
-            mean_val = np.mean(data)
-            std_val = np.std(data)
-            if std_val == 0:
-                return np.zeros_like(data)
-            return (data - mean_val) / std_val
-        
-        # Criar um objeto stats falso para compatibilidade
-        class StatsCompat:
-            def zscore(self, data):
-                return zscore_fallback(data)
-        stats = StatsCompat()
-    
-    print(f"🔄 UPDATE_PRODUCTS_CHARTS executado - pathname: {pathname}")
-    print(f"   Processando gráficos de produtos sem dependência de tabela")
-    
-    try:
-        # Só processa se estiver na página de produtos
-        if pathname and "/app/products" not in pathname and "products" not in pathname:
-            print(f"❌ Não é página de produtos: {pathname}")
-            return {}, {}
-        
-        # Valores padrão para evitar erros com filtros vazios
-        top_produtos = top_produtos or 20
-        
-        # Sempre carregar dados frescos para gráficos de produtos
-        print("✅ Carregando dados de vendas para gráficos de produtos")
         vendas_df = load_vendas_data()
-        
-        if vendas_df.empty:
-            print("❌ Dados de vendas vazios")
-            return {}, {}
-        
-        # Aplicar filtros globais
+        if vendas_df is None or vendas_df.empty:
+            fig = go.Figure().add_annotation(text="Nenhum dado de vendas disponível", x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False)
+            fig.update_layout(template='plotly_white', height=400)
+            return fig
+
         df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                  filtro_hierarquia, filtro_canal, filtro_top_clientes, None)
-        
-        # === LÓGICA INTELIGENTE DE HIERARQUIA ===
-        # Determina qual nível de hierarquia usar baseado no filtro
+                                    filtro_hierarquia, filtro_canal, filtro_top_clientes, None)
+        if df_filtrado is None or df_filtrado.empty:
+            fig = go.Figure().add_annotation(text="Sem dados após filtros", x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False)
+            fig.update_layout(template='plotly_white', height=400)
+            return fig
+
+        # Determinar coluna de produto conforme hierarquia
         hierarchy_level, product_column = determine_hierarchy_level(df_filtrado, filtro_hierarquia)
-        print(f"   🎯 Nível de hierarquia determinado: {hierarchy_level}, coluna: {product_column}")
-        
-        # Define número de top produtos (padrão 20 se não especificado)
         top_n_produtos = top_produtos if top_produtos and top_produtos > 0 else 20
-        print(f"   📊 Top N produtos: {top_n_produtos}")
-        
-        if df_filtrado.empty:
-            print("❌ Dados filtrados vazios")
-            return {}, {}
-        
-        print(f"📊 Dados para processamento: {len(df_filtrado)} registros")
-        
-        print(f"🔍 Colunas disponíveis: {list(df_filtrado.columns)}")
-        
-        # === GRÁFICO DE BOLHAS (Matriz Clientes x Produtos) ===
-        print("🔍 Criando gráfico de bolhas...")
-        
-        # Verificar se as colunas necessárias existem
+
+        # Verificações de colunas necessárias
         if 'cliente' not in df_filtrado.columns or product_column not in df_filtrado.columns:
-            missing_cols = []
-            if 'cliente' not in df_filtrado.columns:
-                missing_cols.append('cliente')
-            if product_column not in df_filtrado.columns:
-                missing_cols.append(product_column)
-            
-            print(f"❌ Colunas obrigatórias faltando: {missing_cols}")
-            fig_bolhas = go.Figure().add_annotation(
-                text=f"Colunas faltando: {', '.join(missing_cols)}", xref="paper", yref="paper", x=0.5, y=0.5
-            )
-            fig_bolhas.update_layout(template='plotly_white', height=400)
-        else:
-            # Determina qual coluna de quantidade usar
-            qty_col = None
-            for col in ['qty_vendida', 'qtde', 'quantidade', 'qte']:
-                if col in df_filtrado.columns:
-                    qty_col = col
-                    break
-            
-            # Agrupa dados por cliente e produto usando a coluna inteligente determinada
-            agg_dict = {'vlr_rol': 'sum'}
-            if qty_col:
-                agg_dict[qty_col] = 'sum'
-            
-            matriz_data = df_filtrado.groupby(['cliente', product_column]).agg(agg_dict).reset_index()
-            
-            if len(matriz_data) > 0:
-                # Para clientes: usar o filtro global ou padrão 10
-                num_top_clientes = filtro_top_clientes if filtro_top_clientes and filtro_top_clientes > 0 else 10
-                
-                # Selecionar top clientes e produtos
-                top_clientes = matriz_data.groupby('cliente')['vlr_rol'].sum().nlargest(num_top_clientes).index
-                top_produtos_viz = matriz_data.groupby(product_column)['vlr_rol'].sum().nlargest(top_n_produtos).index
-                
-                print(f"   📊 Top {num_top_clientes} clientes × Top {top_n_produtos} Produtos selecionados")
-                
-                # Filtra a matriz final
-                matriz_filtered = matriz_data[
-                    (matriz_data['cliente'].isin(top_clientes)) & 
-                    (matriz_data[product_column].isin(top_produtos_viz))
-                ]
-                
-                if not matriz_filtered.empty:
-                    # === IMPLEMENTAÇÃO DE ANÁLISE ESTATÍSTICA E NORMALIZAÇÃO ===
-                    
-                    print("🔬 Iniciando análise estatística para matriz de oportunidades...")
-                    
-                    # 1. PREPARAR DADOS PARA ANÁLISE ESTATÍSTICA
-                    # Calcular estatísticas globais de cada produto
-                    produto_stats = df_filtrado.groupby(product_column).agg({
-                        'vlr_rol': ['sum', 'mean', 'count', 'std'],
-                        'cliente': 'nunique'
-                    }).reset_index()
-                    
-                    # Flatten das colunas
-                    produto_stats.columns = [product_column, 'faturamento_total', 'faturamento_medio', 
-                                           'freq_vendas', 'desvio_padrao', 'num_clientes']
-                    produto_stats['desvio_padrao'] = produto_stats['desvio_padrao'].fillna(0)
-                    
-                    # Calcular métricas de penetração e demanda
-                    total_clientes = df_filtrado['cliente'].nunique()
-                    produto_stats['penetracao_mercado'] = (produto_stats['num_clientes'] / total_clientes) * 100
-                    produto_stats['demanda_relativa'] = stats.zscore(produto_stats['faturamento_total'])
-                    produto_stats['indice_oportunidade'] = produto_stats['faturamento_total'] / (produto_stats['penetracao_mercado'] + 1)
-                    
-                    print(f"   📊 Estatísticas calculadas para {len(produto_stats)} produtos")
-                    
-                    # 2. ANÁLISE DE OPORTUNIDADES POR CLIENTE-PRODUTO
-                    # Identificar produtos com alta demanda geral mas baixa penetração específica
-                    
-                    # Merge das estatísticas com a matriz
-                    matriz_enhanced = matriz_filtered.merge(
-                        produto_stats[[product_column, 'faturamento_total', 'penetracao_mercado', 
-                                     'demanda_relativa', 'indice_oportunidade']], 
-                        on=product_column, 
-                        suffixes=('_cliente', '_global')
-                    )
-                    
-                    # Calcular score de oportunidade para cada cliente-produto
-                    # Score alto = produto com alta demanda global + baixa penetração no cliente
-                    matriz_enhanced['participacao_cliente'] = (
-                        matriz_enhanced['vlr_rol'] / matriz_enhanced['faturamento_total']
-                    ) * 100
-                    
-                    # Score de oportunidade: produtos com alta demanda global mas baixa participação do cliente
-                    matriz_enhanced['score_oportunidade'] = (
-                        matriz_enhanced['indice_oportunidade'] * 
-                        (100 - matriz_enhanced['participacao_cliente']) / 100
-                    )
-                    
-                    # 3. NORMALIZAÇÃO ESTATÍSTICA PARA CORES
-                    # Usar percentis em vez de min-max para evitar outliers
-                    
-                    # Normalizar score de oportunidade usando percentis
-                    p25 = np.percentile(matriz_enhanced['score_oportunidade'], 25)
-                    p75 = np.percentile(matriz_enhanced['score_oportunidade'], 75)
-                    
-                    # Winsorização: limitar valores extremos aos percentis 5-95
-                    p5 = np.percentile(matriz_enhanced['score_oportunidade'], 5)
-                    p95 = np.percentile(matriz_enhanced['score_oportunidade'], 95)
-                    
-                    matriz_enhanced['score_normalizado'] = np.clip(
-                        matriz_enhanced['score_oportunidade'], p5, p95
-                    )
-                    
-                    # Escala final 0-100 para cores
-                    score_min = matriz_enhanced['score_normalizado'].min()
-                    score_max = matriz_enhanced['score_normalizado'].max()
-                    
-                    if score_max > score_min:
-                        matriz_enhanced['cor_score'] = 100 * (
-                            (matriz_enhanced['score_normalizado'] - score_min) / (score_max - score_min)
-                        )
-                    else:
-                        matriz_enhanced['cor_score'] = 50  # Valor médio se todos iguais
-                    
-                    # 4. NORMALIZAÇÃO DO TAMANHO DAS BOLHAS
-                    # Usar log para comprimir a escala quando há valores muito diferentes
-                    
-                    matriz_enhanced['vlr_rol_abs'] = matriz_enhanced['vlr_rol'].abs()
-                    matriz_enhanced['vlr_rol_abs'] = matriz_enhanced['vlr_rol_abs'].replace(0, 1)
-                    
-                    # Log normalização para tamanho
-                    matriz_enhanced['tamanho_log'] = np.log1p(matriz_enhanced['vlr_rol_abs'])
-                    
-                    # Normalizar tamanho para range 10-50 (evita bolhas muito pequenas ou grandes)
-                    tamanho_min = matriz_enhanced['tamanho_log'].min()
-                    tamanho_max = matriz_enhanced['tamanho_log'].max()
-                    
-                    if tamanho_max > tamanho_min:
-                        matriz_enhanced['tamanho_normalizado'] = 10 + 40 * (
-                            (matriz_enhanced['tamanho_log'] - tamanho_min) / (tamanho_max - tamanho_min)
-                        )
-                    else:
-                        matriz_enhanced['tamanho_normalizado'] = 25  # Tamanho médio
-                    
-                    print(f"   ✅ Normalização estatística concluída")
-                    print(f"   📈 Score de oportunidade: {matriz_enhanced['score_oportunidade'].min():.2f} - {matriz_enhanced['score_oportunidade'].max():.2f}")
-                    print(f"   🎨 Score normalizado para cores: {matriz_enhanced['cor_score'].min():.1f} - {matriz_enhanced['cor_score'].max():.1f}")
-                    
-                    # 5. CRIAR GRÁFICO COM ANÁLISE ESTATÍSTICA
-                    import plotly.express as px
-                    import plotly.graph_objects as go
-                    
-                    # Criar custom hover template com métricas estatísticas
-                    hover_template = (
-                        "<b>%{customdata[0]}</b><br>" +
-                        "<b>Produto:</b> %{y}<br>" +
-                        "<b>Faturamento Cliente:</b> R$ %{customdata[1]:,.0f}<br>" +
-                        "<b>Score Oportunidade:</b> %{customdata[2]:.1f}<br>" +
-                        "<b>Penetração Mercado:</b> %{customdata[3]:.1f}%<br>" +
-                        "<b>Participação Cliente:</b> %{customdata[4]:.1f}%<br>" +
-                        "<b>Demanda Global:</b> R$ %{customdata[5]:,.0f}<br>" +
-                        "<extra></extra>"
-                    )
-                    
-                    # Preparar dados customizados para hover
-                    custom_data = np.array([
-                        matriz_enhanced['cliente'],
-                        matriz_enhanced['vlr_rol'],
-                        matriz_enhanced['score_oportunidade'],
-                        matriz_enhanced['penetracao_mercado'],
-                        matriz_enhanced['participacao_cliente'],
-                        matriz_enhanced['faturamento_total']
-                    ]).T
-                    
-                    fig_bolhas = go.Figure()
-                    
-                    # Adicionar scatter com dados normalizados
-                    fig_bolhas.add_trace(go.Scatter(
-                        x=matriz_enhanced['cliente'],
-                        y=matriz_enhanced[product_column],
-                        mode='markers',
-                        marker=dict(
-                            size=matriz_enhanced['tamanho_normalizado'],
-                            color=matriz_enhanced['cor_score'],
-                            colorscale='RdYlBu_r',  # Vermelho = alta oportunidade, azul = baixa
-                            colorbar=dict(
-                                title="Score de<br>Oportunidade",
-                                thickness=15,
-                                len=0.5,
-                                x=1.02,
-                                y=1,
-                                xanchor="left",
-                                yanchor="top"
-                            ),
-                            sizemode='diameter',
-                            sizemin=8,
-                            line=dict(width=1, color='rgba(0,51,102,0.3)'),
-                            opacity=0.8
-                        ),
-                        customdata=custom_data,
-                        hovertemplate=hover_template,
-                        name=""
-                    ))
-                    
-                    # Layout profissional com informações estatísticas
-                    fig_bolhas.update_layout(
-                        title=dict(
-                            text=(
-                                f'Matriz de Oportunidades: Clientes × Produtos<br>'
-                                f'<span style="font-size:14px">'
-                                f'Top {num_top_clientes} Clientes × Top {top_n_produtos} Produtos | '
-                                f'Análise Estatística de Demanda e Penetração'
-                                f'</span>'
-                            ),
-                            x=0.5,
-                            xanchor='center',
-                            font=dict(size=18, color='#003366')
-                        ),
-                        height=650,
-                        template='plotly_white',
-                        font=dict(family="Arial", size=12),
-                        xaxis=dict(
-                            title="Cliente",
-                            tickangle=45
-                        ),
-                        yaxis=dict(
-                            title="Produto"
-                        ),
-                        margin=dict(l=200, r=140, t=120, b=150),
-                        hovermode='closest',
-                        annotations=[
-                            dict(
-                                text=(
-                                    "🔴 Alta Oportunidade: Produtos com alta demanda global e baixa penetração no cliente<br>"
-                                    "🔵 Baixa Oportunidade: Produtos já bem explorados pelo cliente"
-                                ),
-                                xref="paper", yref="paper",
-                                x=0.02, y=0.98,
-                                xanchor="left", yanchor="top",
-                                font=dict(size=10, color='#666666'),
-                                showarrow=False,
-                                bgcolor="rgba(255,255,255,0.8)",
-                                bordercolor="rgba(200,200,200,0.8)",
-                                borderwidth=1
-                            )
-                        ]
-                    )
-                    
-                    print("✅ Gráfico de matriz de oportunidades criado com análise estatística")
-                else:
-                    fig_bolhas = go.Figure().add_annotation(
-                        text="Sem dados para matriz após filtros", 
-                        xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-                    )
-                    fig_bolhas.update_layout(template='plotly_white', height=400)
-            else:
-                fig_bolhas = go.Figure().add_annotation(
-                    text="Sem dados para processar", 
-                    xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-                )
-                fig_bolhas.update_layout(template='plotly_white', height=400)
-            
-            # Verificar colunas disponíveis na tabela de produtos
-            if 'faturamento_total' in df_filtrado.columns:
-                df_filtrado['vlr_rol'] = df_filtrado['faturamento_total']
-            elif 'valor_total' in df_filtrado.columns:
-                df_filtrado['vlr_rol'] = df_filtrado['valor_total']
-            
-            # Para tabela de produtos, precisamos dos dados brutos
-            print("⚠️ Dados da tabela de produtos não contêm informações de clientes")
-            print("🔄 Recarregando dados brutos para gráficos...")
-            
-            # Usar filtros globais em vez dos dados da tabela
-            vendas_df = load_vendas_data()
-            if vendas_df.empty:
-                print("❌ Dados de vendas vazios")
-                empty_fig = go.Figure()
-                empty_fig.add_annotation(text="Nenhum dado de vendas disponível", xref="paper", yref="paper", x=0.5, y=0.5)
-                return empty_fig, empty_fig
-            
-            # Aplicar filtros
-            df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
-                                      filtro_hierarquia, filtro_canal, filtro_top_clientes, None)
-        
-        # Gráfico de bolhas - clientes x produtos
-        import plotly.express as px
-        import plotly.graph_objects as go
-        
-        # Verificar se as colunas necessárias existem
-        required_cols = ['cliente', 'produto', 'vlr_rol']
-        missing_cols = [col for col in required_cols if col not in df_filtrado.columns]
-        
-        if missing_cols:
-            print(f"❌ Colunas obrigatórias faltando: {missing_cols}")
-            empty_fig = go.Figure()
-            empty_fig.add_annotation(text=f"Colunas faltando: {', '.join(missing_cols)}", xref="paper", yref="paper", x=0.5, y=0.5)
-            return empty_fig, empty_fig
-        
-        # Usar qtd_rol se disponível, senão usar uma coluna de contagem
-        qtd_col = 'qtd_rol' if 'qtd_rol' in df_filtrado.columns else 'vlr_rol'
-        print(f"🔍 Usando coluna de quantidade: {qtd_col}")
-        
-        # Dados para bolhas 
+            missing = [c for c in ['cliente', product_column] if c not in df_filtrado.columns]
+            fig = go.Figure().add_annotation(text=f"Colunas faltando: {', '.join(missing)}", x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False)
+            fig.update_layout(template='plotly_white', height=400)
+            return fig
+
+        # Determinar coluna de quantidade, se existir
+        qty_col = next((c for c in ['qty_vendida', 'qtde', 'quantidade', 'qte'] if c in df_filtrado.columns), None)
+        agg = {'vlr_rol': 'sum'}
+        if qty_col:
+            agg[qty_col] = 'sum'
+
+        matriz = df_filtrado.groupby(['cliente', product_column]).agg(agg).reset_index()
+        if matriz.empty:
+            fig = go.Figure().add_annotation(text="Sem dados para matriz", x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False)
+            fig.update_layout(template='plotly_white', height=400)
+            return fig
+
+        num_top_clientes = filtro_top_clientes if filtro_top_clientes and filtro_top_clientes > 0 else 10
+        top_clientes = matriz.groupby('cliente')['vlr_rol'].sum().nlargest(num_top_clientes).index
+        top_produtos_viz = matriz.groupby(product_column)['vlr_rol'].sum().nlargest(top_n_produtos).index
+        sel = matriz[(matriz['cliente'].isin(top_clientes)) & (matriz[product_column].isin(top_produtos_viz))]
+        if sel.empty:
+            fig = go.Figure().add_annotation(text="Sem dados após seleção Top N", x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False)
+            fig.update_layout(template='plotly_white', height=400)
+            return fig
+
+        # Estatísticas auxiliares para hover/cores
+        produto_stats = df_filtrado.groupby(product_column).agg({
+            'vlr_rol': ['sum', 'mean', 'count', 'std'],
+            'cliente': 'nunique'
+        }).reset_index()
+        produto_stats.columns = [product_column, 'faturamento_total', 'faturamento_medio', 'freq_vendas', 'desvio_padrao', 'num_clientes']
+        produto_stats['desvio_padrao'] = produto_stats['desvio_padrao'].fillna(0)
+        total_clientes = df_filtrado['cliente'].nunique()
+        produto_stats['penetracao_mercado'] = (produto_stats['num_clientes'] / max(total_clientes, 1)) * 100
+
+        # zscore com fallback
         try:
-            bubble_data = df_filtrado.groupby(['cliente', 'produto']).agg({
-                'vlr_rol': 'sum',
-                qtd_col: 'sum'  # Usar a coluna detectada
-            }).reset_index()
-            
-            print(f"✅ Dados de bolhas agregados: {len(bubble_data)} registros")
-            
-            # CORREÇÃO: Garantir que não existam valores negativos para size
-            bubble_data['vlr_rol_abs'] = bubble_data['vlr_rol'].abs()  # Valor absoluto para tamanho
-            bubble_data['qtd_abs'] = bubble_data[qtd_col].abs()  # Valor absoluto para cor
-            
-            # Remover registros com valores zero ou NaN
-            bubble_data = bubble_data[
-                (bubble_data['vlr_rol_abs'] > 0) & 
-                (bubble_data['qtd_abs'] > 0) &
-                (bubble_data['vlr_rol_abs'].notna()) &
-                (bubble_data['qtd_abs'].notna())
-            ]
-            
-            print(f"✅ Dados limpos: {len(bubble_data)} registros válidos")
-            
-        except Exception as e:
-            print(f"❌ Erro ao agregar dados de bolhas: {e}")
-            empty_fig = go.Figure()
-            empty_fig.add_annotation(text=f"Erro na agregação: {str(e)}", xref="paper", yref="paper", x=0.5, y=0.5)
-            return empty_fig, empty_fig
-        
-        # MELHORIA: Usar o filtro global Top Clientes em vez de fixo
-        # Se filtro_top_clientes está definido, usar esse valor; senão usar padrão
-        num_top_clientes = filtro_top_clientes if filtro_top_clientes and filtro_top_clientes > 0 else 15
-        num_top_produtos = top_produtos if top_produtos and top_produtos > 0 else 20
-        
-        print(f"🔍 Aplicando filtros visuais: Top {num_top_clientes} clientes × Top {num_top_produtos} produtos")
-        
-        # === GRÁFICO DE PARETO (Produtos por Faturamento) ===
-        print("🔍 Criando gráfico de Pareto...")
-        
-        try:
-            # Cria dados para Pareto usando a coluna de produto inteligente
-            pareto_data = df_filtrado.groupby(product_column)['vlr_rol'].sum().sort_values(ascending=False).reset_index()
-            pareto_data = pareto_data.head(num_top_produtos)
-            
-            if len(pareto_data) > 0:
-                pareto_data['faturamento_acumulado'] = pareto_data['vlr_rol'].cumsum()
-                pareto_data['percentual_acumulado'] = (pareto_data['faturamento_acumulado'] / pareto_data['vlr_rol'].sum()) * 100
-                print(f"✅ Dados Pareto preparados: {len(pareto_data)} produtos")
-            else:
-                print("❌ Nenhum dado para Pareto após agregação")
-                fig_pareto = go.Figure().add_annotation(
-                    text="Nenhum produto encontrado", 
-                    xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-                )
-                fig_pareto.update_layout(template='plotly_white', height=400)
-                    
-        except Exception as e:
-            print(f"❌ Erro ao preparar dados Pareto: {e}")
-            fig_pareto = go.Figure().add_annotation(
-                text=f"Erro na preparação: {str(e)}", 
-                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-            )
-            fig_pareto.update_layout(template='plotly_white', height=400)
-        
-        # Criar o gráfico de Pareto se há dados válidos
-        if 'pareto_data' in locals() and not pareto_data.empty and len(pareto_data) > 0:
-            try:
-                fig_pareto = go.Figure()
-                
-                # Barras de faturamento com estilo profissional
-                fig_pareto.add_trace(go.Bar(
-                    x=pareto_data[product_column],
-                    y=pareto_data['vlr_rol'],
-                    name='Faturamento',
-                    yaxis='y',
-                    marker=dict(
-                        color='#0066cc',
-                        line=dict(color='#003366', width=1)
-                    ),
-                    hovertemplate='<b>%{x}</b><br>Faturamento: R$ %{y:,.0f}<extra></extra>'
-                ))
-                
-                # Linha de percentual acumulado
-                fig_pareto.add_trace(go.Scatter(
-                    x=pareto_data[product_column],
-                    y=pareto_data['percentual_acumulado'],
-                    mode='lines+markers',
-                    name='% Acumulado',
-                    yaxis='y2',
-                    line=dict(color='#dc3545', width=3),
-                    marker=dict(size=8, color='#dc3545'),
-                    hovertemplate='<b>%{x}</b><br>% Acumulado: %{y:.1f}%<extra></extra>'
-                ))
-                
-                # Layout profissional simplificado
-                fig_pareto.update_layout(
-                    title="Análise de Pareto - Faturamento por Produto",
-                    height=550,
-                    template='plotly_white',
-                    yaxis=dict(
-                        title="Faturamento (R$)",
-                        tickformat=',.0f'
-                    ),
-                    yaxis2=dict(
-                        title="% Acumulado",
-                        overlaying='y',
-                        side='right',
-                        range=[0, 100],
-                        tickformat='.0f',
-                        ticksuffix='%'
-                    ),
-                    xaxis=dict(
-                        title="Produto",
-                        tickangle=45
-                    ),
-                    margin=dict(l=80, r=80, t=100, b=120)
-                )
-                
-                # Adicionar linha de referência 80%
-                fig_pareto.add_hline(
-                    y=80, 
-                    yref='y2',
-                    line_dash="dash", 
-                    line_color="red"
-                )
-                
-                print("✅ Gráfico de Pareto criado com sucesso")
-                
-            except Exception as e:
-                print(f"❌ Erro ao criar gráfico de Pareto: {e}")
-                fig_pareto = go.Figure().add_annotation(
-                    text=f"Erro no gráfico Pareto: {str(e)}", 
-                    xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-                )
-                fig_pareto.update_layout(template='plotly_white', height=400)
-        else:
-            fig_pareto = go.Figure().add_annotation(
-                text="Nenhum dado disponível para análise de Pareto", 
-                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-            )
-            fig_pareto.update_layout(template='plotly_white', height=400)
-        
-        print(f"✅ Gráficos de produtos gerados")
-        return fig_bolhas, fig_pareto
-        
-    except Exception as e:
-        print(f"❌ Erro em update_products_charts: {e}")
-        import traceback
-        traceback.print_exc()
-        
-        # go já está importado no início da função
-        empty_fig = go.Figure().add_annotation(
-            text=f"Erro geral: {str(e)}", 
-            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
+            from scipy import stats as _stats
+            produto_stats['demanda_relativa'] = _stats.zscore(produto_stats['faturamento_total'])
+        except Exception:
+            m = produto_stats['faturamento_total'].mean()
+            s = produto_stats['faturamento_total'].std() or 1
+            produto_stats['demanda_relativa'] = (produto_stats['faturamento_total'] - m) / s
+
+        produto_stats['indice_oportunidade'] = produto_stats['faturamento_total'] / (produto_stats['penetracao_mercado'] + 1)
+        mat = sel.merge(
+            produto_stats[[product_column, 'faturamento_total', 'penetracao_mercado', 'demanda_relativa', 'indice_oportunidade']],
+            on=product_column
         )
-        empty_fig.update_layout(template='plotly_white', height=400)
-        return empty_fig, empty_fig
+        mat['participacao_cliente'] = (mat['vlr_rol'] / mat['faturamento_total']).replace([np.inf, -np.inf], 0) * 100
+        mat['score_oportunidade'] = mat['indice_oportunidade'] * (100 - mat['participacao_cliente']) / 100
+
+        # Normalizações
+        p5, p95 = np.percentile(mat['score_oportunidade'], 5), np.percentile(mat['score_oportunidade'], 95)
+        mat['score_norm'] = np.clip(mat['score_oportunidade'], p5, p95)
+        smin, smax = mat['score_norm'].min(), mat['score_norm'].max()
+        mat['cor_score'] = 50 if smax <= smin else 100 * (mat['score_norm'] - smin) / (smax - smin)
+        mat['vlr_rol_abs'] = mat['vlr_rol'].abs().replace(0, 1)
+        mat['tamanho_log'] = np.log1p(mat['vlr_rol_abs'])
+        tmin, tmax = mat['tamanho_log'].min(), mat['tamanho_log'].max()
+        mat['tamanho_norm'] = 25 if tmax <= tmin else 10 + 40 * (mat['tamanho_log'] - tmin) / (tmax - tmin)
+
+        import plotly.graph_objects as go
+        fig = go.Figure()
+        hover_template = (
+            "<b>%{customdata[0]}</b><br>"+
+            "<b>Produto:</b> %{y}<br>"+
+            "<b>Faturamento Cliente:</b> R$ %{customdata[1]:,.0f}<br>"+
+            "<b>Score Oportunidade:</b> %{customdata[2]:.1f}<br>"+
+            "<b>Penetração Mercado:</b> %{customdata[3]:.1f}%<br>"+
+            "<b>Participação Cliente:</b> %{customdata[4]:.1f}%<br>"+
+            "<b>Demanda Global:</b> R$ %{customdata[5]:,.0f}<br><extra></extra>"
+        )
+        custom_data = np.array([
+            mat['cliente'], mat['vlr_rol'], mat['score_oportunidade'], mat['penetracao_mercado'], mat['participacao_cliente'], mat['faturamento_total']
+        ]).T
+        fig.add_trace(go.Scatter(
+            x=mat['cliente'], y=mat[product_column], mode='markers',
+            marker=dict(size=mat['tamanho_norm'], color=mat['cor_score'], colorscale='RdYlBu_r',
+                        colorbar=dict(title="Score de<br>Oportunidade", thickness=15, len=0.5, x=1.02, y=1, xanchor="left", yanchor="top"),
+                        sizemode='diameter', sizemin=8, line=dict(width=1, color='rgba(0,51,102,0.3)'), opacity=0.8),
+            customdata=custom_data, hovertemplate=hover_template, name=""
+        ))
+        fig.update_layout(
+            title=dict(text=f"Matriz de Oportunidades: Clientes × Produtos<br><span style='font-size:14px'>Top {num_top_clientes} Clientes × Top {top_n_produtos} Produtos</span>", x=0.5, xanchor='center', font=dict(size=18, color='#003366')),
+            height=650, template='plotly_white', font=dict(family="Arial", size=12),
+            xaxis=dict(title="Cliente", tickangle=45), yaxis=dict(title="Produto"),
+            margin=dict(l=200, r=140, t=120, b=150), hovermode='closest'
+        )
+        return fig
+    except Exception as e:
+        import traceback
+        print(f"❌ Erro em update_products_bubble_chart: {e}")
+        traceback.print_exc()
+        fig = go.Figure().add_annotation(text=f"Erro: {str(e)}", x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False)
+        fig.update_layout(template='plotly_white', height=400)
+        return fig
+
+""" OPORTUNIDADES POR CLIENTE (Onda A+B) """
+@app.callback(
+    [
+        Output('opportunities-table', 'rowData'),
+        Output('opportunities-table', 'columnDefs'),
+        Output('opportunities-summary', 'children'),
+        Output('opportunities-weight-hint', 'children'),
+    ],
+    [
+        Input('url', 'pathname'),
+        Input('global-filtro-ano', 'value'),
+        Input('global-filtro-mes', 'value'),
+        Input('global-filtro-cliente', 'value'),
+        Input('global-filtro-hierarquia', 'value'),
+        Input('global-filtro-canal', 'value'),
+        Input('peso-freq-cotacao', 'value'),
+        Input('opportunities-freq-mode', 'value'),
+        Input('opportunities-bucket-filter', 'value'),
+    ],
+    prevent_initial_call=False
+)
+def update_opportunities_table(pathname, filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, peso_freq, freq_mode, bucket_filter):
+    # Renderiza apenas na página de Produtos
+    is_products = bool(pathname and ("/app/products" in pathname or "/produtos" in pathname or "products" in pathname))
+    if not is_products:
+        from dash.exceptions import PreventUpdate
+        raise PreventUpdate
+
+    # Exige exatamente um cliente selecionado
+    if not filtro_cliente or not isinstance(filtro_cliente, (list, tuple)) or len(filtro_cliente) != 1:
+        return [], [
+            {"headerName": "Mensagem", "field": "mensagem"}
+        ], html.Span("Selecione exatamente um cliente no filtro global para ver as oportunidades.")
+
+    cliente_id = str(filtro_cliente[0])
+
+    try:
+        vendas_df = load_vendas_data()
+        cotacoes_df = load_cotacoes_data()
+        produtos_cotados_df = load_produtos_cotados_data()
+    except Exception:
+        return [], [], html.Span("Falha ao carregar dados.")
+
+    # Aplicar filtros globais nas Vendas (fonte de verdade)
+    try:
+        from utils import apply_filters as _apply_filters
+    except Exception:
+        _apply_filters = None
+
+    vendas_filtrado = vendas_df
+    if _apply_filters is not None:
+        # Importante: não filtrar pelo cliente aqui, para que v_mercado considere demais clientes
+        vendas_filtrado = _apply_filters(
+            vendas_df, filtro_ano, filtro_mes, None,  # cliente=None
+            filtro_hierarquia, filtro_canal, None, None, metrica_type='faturamento'
+        )
+
+    # Preparar ranges de ano/mês para filtrar cotações na mesma janela temporal
+    ano_range = tuple(filtro_ano) if isinstance(filtro_ano, (list, tuple)) and len(filtro_ano) == 2 else None
+    mes_range = tuple(filtro_mes) if isinstance(filtro_mes, (list, tuple)) and len(filtro_mes) == 2 else None
+
+    # Calcular oportunidades
+    df = compute_client_opportunities(
+        vendas_filtrado, cotacoes_df, produtos_cotados_df,
+        cliente_id=cliente_id,
+        ano_range=ano_range,
+        mes_range=mes_range,
+        peso_freq_cotacao=float(peso_freq or 0.5),
+        filtro_hierarquia=filtro_hierarquia,
+        filtro_canal=filtro_canal,
+        vendas_map_df=vendas_df,
+        freq_mode=str(freq_mode or 'occurrences'),
+    )
+
+    # Se houver filtro de hierarquia, apresentar a "próxima camada" (ex.: se filtro em Hierarquia 1, exibir Hierarquia 2)
+    try:
+        import pandas as _pd
+        level = None
+        values = set([str(v) for v in (filtro_hierarquia or [])]) if isinstance(filtro_hierarquia, (list, tuple, set)) else ({str(filtro_hierarquia)} if filtro_hierarquia else set())
+        cols_present = [c for c in ['hier_produto_1', 'hier_produto_2', 'hier_produto_3'] if c in vendas_filtrado.columns]
+        if values and cols_present:
+            if 'hier_produto_1' in cols_present and vendas_filtrado['hier_produto_1'].astype(str).isin(values).any():
+                level = 1
+            elif 'hier_produto_2' in cols_present and vendas_filtrado['hier_produto_2'].astype(str).isin(values).any():
+                level = 2
+            elif 'hier_produto_3' in cols_present and vendas_filtrado['hier_produto_3'].astype(str).isin(values).any():
+                level = 3
+
+        if level is not None:
+            # Mapear material -> hierarquias
+            map_cols = ['material'] + cols_present
+            mat_map = vendas_filtrado[map_cols].dropna(subset=['material']).drop_duplicates('material')
+            mat_map['material'] = mat_map['material'].astype(str)
+            df = df.copy()
+            df['material'] = df['material'].astype(str)
+            df = df.merge(mat_map, on='material', how='left')
+
+            # Escolher coluna de exibição (próximo nível)
+            if level == 1 and 'hier_produto_2' in df.columns:
+                disp_col = 'hier_produto_2'
+            elif level == 2 and 'hier_produto_3' in df.columns:
+                disp_col = 'hier_produto_3'
+            else:
+                disp_col = 'produto'
+
+            # Agregar por display col e recalcular motivo/oportunidade a nível do grupo
+            if disp_col in df.columns:
+                agg = df.groupby(disp_col).agg({
+                    'v_cliente': 'sum',
+                    'v_mercado': 'sum',
+                    'q_valor': 'sum',
+                    'q_freq': 'sum',
+                    'ultima_cotacao': 'max'
+                }).reset_index().rename(columns={disp_col: 'produto'})
+
+                # Escolher um material representativo por grupo (maior oportunidade, depois maior q_valor)
+                _df_rank = df.copy()
+                _df_rank['_rank_key'] = (_df_rank['oportunidade_brl'].fillna(0)) * 1e9 + _df_rank['q_valor'].fillna(0)
+                rep = _df_rank.sort_values('_rank_key', ascending=False).groupby(disp_col, as_index=False).first()
+                rep = rep.rename(columns={'material': '_rep_material'})[[disp_col, '_rep_material']]
+                agg = agg.merge(rep.rename(columns={disp_col: 'produto'}), on='produto', how='left')
+
+                # Recalcular potenciais com mesmo critério
+                w = float(peso_freq or 0.5)
+                mask_b1 = (agg['q_valor'] > 0) & (agg['v_cliente'] <= 0)
+                freq_rank = agg.loc[mask_b1, 'q_freq'].rank(pct=True, method='average') if mask_b1.any() else _pd.Series(dtype=float)
+                multiplier = (1 - w) + w * freq_rank
+                pot1 = _pd.Series(0.0, index=agg.index)
+                pot1.loc[mask_b1] = agg.loc[mask_b1, 'q_valor'] * multiplier.values
+
+                mask_b2 = (agg['v_mercado'] > 0) & (agg['v_cliente'] <= 0)
+                pot2 = _pd.Series(0.0, index=agg.index)
+                pot2.loc[mask_b2] = agg.loc[mask_b2, 'v_mercado']
+
+                mask_b3 = (agg['v_cliente'] > 0) & (agg['v_mercado'] > agg['v_cliente'])
+                pot3 = _pd.Series(0.0, index=agg.index)
+                pot3.loc[mask_b3] = (agg.loc[mask_b3, 'v_mercado'] - agg.loc[mask_b3, 'v_cliente'])
+
+                agg['oportunidade_brl'] = _pd.concat([pot1, pot2, pot3], axis=1).max(axis=1)
+                def _mot(row):
+                    if row['oportunidade_brl'] <= 0:
+                        return ''
+                    if row['oportunidade_brl'] == pot1.loc[row.name]:
+                        return 'Cotou e não compra'
+                    if row['oportunidade_brl'] == pot2.loc[row.name]:
+                        return 'Mercado forte, cliente fora'
+                    return 'Baixa penetração'
+                agg['motivo'] = agg.apply(_mot, axis=1)
+
+                # Material representativo neste nível (preenche com '-' se não houver)
+                agg['material'] = agg['_rep_material'].fillna('-').astype(str)
+                agg = agg.drop(columns=['_rep_material'], errors='ignore')
+                df = agg.sort_values('oportunidade_brl', ascending=False)
+    except Exception:
+        # Em caso de qualquer falha, mantém df original por segurança
+        pass
+
+    # Filtrar por bucket se necessário (aplicar após quaisquer agregações)
+    if isinstance(bucket_filter, str) and bucket_filter != 'all':
+        df = df[df['motivo'] == bucket_filter]
+
+    # Montar colunas e formatos
+    cols = [
+        'material', 'produto', 'oportunidade_brl', 'motivo', 'v_mercado', 'v_cliente', 'q_valor', 'q_freq', 'ultima_cotacao'
+    ]
+    numeric_cols = ['oportunidade_brl', 'v_mercado', 'v_cliente', 'q_valor', 'q_freq']
+    formats = {
+        'oportunidade_brl': 'currency',
+        'v_mercado': 'currency',
+        'v_cliente': 'currency',
+        'q_valor': 'currency',
+        'q_freq': 'int'
+    }
+    display_names = {
+        'material': 'Material',
+        'produto': 'Produto',
+        'oportunidade_brl': 'Oportunidade (R$)',
+        'motivo': 'Motivo',
+        'v_mercado': 'Demanda Mercado (R$)',
+        'v_cliente': 'Compras Cliente (R$)',
+        'q_valor': 'Valor Cotado Cliente (R$)',
+        'q_freq': ('Freq. Cotações (ocorrências)' if str(freq_mode or 'occurrences') == 'occurrences' else 'Freq. Cotações (ponderada por qtd.)'),
+        'ultima_cotacao': 'Última Cotação'
+    }
+
+    column_defs = build_column_defs(cols, numeric_cols=numeric_cols, formats=formats, display_names=display_names)
+
+    # Resumo
+    n_itens = len(df)
+    # Quebra por motivo para explicar efeito do peso de frequência
+    try:
+        counts_by_motivo = df['motivo'].value_counts(dropna=False).to_dict() if 'motivo' in df.columns else {}
+    except Exception:
+        counts_by_motivo = {}
+    n_b1 = int(counts_by_motivo.get('Cotou e não compra', 0) or 0)
+    detalhes_peso = ""
+    # O peso da frequência só afeta itens do bucket 'Cotou e não compra' e apenas quando há diferenças de frequência
+    if n_b1 <= 1:
+        detalhes_peso = " (Nota: o peso de frequência impacta apenas itens em 'Cotou e não compra' e pode não alterar a ordem quando há 0 ou 1 item nesse motivo.)"
+    else:
+        detalhes_peso = f" (Peso de frequência aplicado a {n_b1} itens em 'Cotou e não compra'.)"
+    resumo = f"{n_itens} itens de oportunidade para o cliente {cliente_id}. Ordenado por Oportunidade (R$).{detalhes_peso}"
+    # Dica curta abaixo do slider
+    if n_b1 <= 1:
+        hint = "Dica: o peso de frequência só afeta itens em 'Cotou e não compra'; com 0/1 item, a ordem pode não mudar."
+    else:
+        hint = f"Peso aplicado a {n_b1} item(ns) em 'Cotou e não compra'."
+
+    return df.to_dict('records'), column_defs, resumo, hint
+
+@app.callback(
+    Output('grafico-pareto-produtos', 'figure'),
+    [Input('global-filtro-ano', 'value'),
+     Input('global-filtro-mes', 'value'),
+     Input('global-filtro-cliente', 'value'),
+     Input('global-filtro-hierarquia', 'value'),
+     Input('global-filtro-canal', 'value'),
+     Input('url', 'pathname')],
+    prevent_initial_call=False
+)
+def update_overview_pareto_chart(filtro_ano, filtro_mes, filtro_cliente, filtro_hierarquia, filtro_canal, pathname):
+    """Atualiza APENAS o gráfico de Pareto de Produtos na Visão Geral."""
+    import plotly.graph_objects as go
+    # Restringe execução à Visão Geral
+    is_overview_page = bool(pathname and (pathname in ['/', '/app', '/app/'] or '/app/overview' in pathname))
+    if not is_overview_page:
+        from dash.exceptions import PreventUpdate
+        raise PreventUpdate
+
+    try:
+        vendas_df = load_vendas_data()
+        if vendas_df is None or vendas_df.empty:
+            fig = go.Figure().add_annotation(text="Nenhum dado de vendas disponível", x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False)
+            fig.update_layout(template='plotly_white', height=400)
+            return fig
+
+        df_filtrado = apply_filters(vendas_df, filtro_ano, filtro_mes, filtro_cliente, 
+                                    filtro_hierarquia, filtro_canal, None, None)
+        if df_filtrado is None or df_filtrado.empty:
+            fig = go.Figure().add_annotation(text="Sem dados após filtros", x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False)
+            fig.update_layout(template='plotly_white', height=400)
+            return fig
+
+        _, product_column = determine_hierarchy_level(df_filtrado, filtro_hierarquia)
+        top_n = 20
+        pareto = (df_filtrado.groupby(product_column)['vlr_rol'].sum()
+                  .sort_values(ascending=False).reset_index().head(top_n))
+        if pareto.empty:
+            fig = go.Figure().add_annotation(text="Nenhum dado disponível para análise de Pareto", x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False)
+            fig.update_layout(template='plotly_white', height=400)
+            return fig
+
+        total = pareto['vlr_rol'].sum()
+        if total > 0:
+            pareto['faturamento_acumulado'] = pareto['vlr_rol'].cumsum()
+            pareto['percentual_acumulado'] = (pareto['faturamento_acumulado'] / total) * 100
+        else:
+            pareto['faturamento_acumulado'] = 0
+            pareto['percentual_acumulado'] = 0
+
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=pareto[product_column], y=pareto['vlr_rol'], name='Faturamento', yaxis='y',
+            marker=dict(color='#0066cc', line=dict(color='#003366', width=1)),
+            hovertemplate='<b>%{x}</b><br>Faturamento: R$ %{y:,.0f}<extra></extra>'
+        ))
+        fig.add_trace(go.Scatter(
+            x=pareto[product_column], y=pareto['percentual_acumulado'], mode='lines+markers', name='% Acumulado', yaxis='y2',
+            line=dict(color='#dc3545', width=3), marker=dict(size=8, color='#dc3545'),
+            hovertemplate='<b>%{x}</b><br>% Acumulado: %{y:.1f}%<extra></extra>'
+        ))
+        fig.update_layout(
+            title="Análise de Pareto - Faturamento por Produto", height=550, template='plotly_white', showlegend=False,
+            yaxis=dict(title="Faturamento (R$)", tickformat=',.0f'),
+            yaxis2=dict(title="% Acumulado", overlaying='y', side='right', range=[0, 100], tickformat='.0f', ticksuffix='%'),
+            xaxis=dict(title="Produto", tickangle=45), margin=dict(l=80, r=80, t=100, b=120)
+        )
+        try:
+            fig.add_hline(y=80, yref='y2', line_dash='dash', line_color='red')
+        except Exception:
+            pass
+        return fig
+    except Exception as e:
+        import traceback
+        print(f"❌ Erro em update_overview_pareto_chart: {e}")
+        traceback.print_exc()
+        fig = go.Figure().add_annotation(text=f"Erro no gráfico Pareto: {str(e)}", x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False)
+        fig.update_layout(template='plotly_white', height=400)
+        return fig
 
 # CALLBACK DESABILITADO - Tabela agora é gerenciada por produtos_table_callback.py
 # @app.callback(
-#     Output('tabela-analise-produtos', 'data'),
+#     Output('tabela-kpis-clientes', 'dashGridOptions'),
 #     [Input('global-filtro-ano', 'value'),
 #      Input('global-filtro-mes', 'value'),
 #      Input('global-filtro-cliente', 'value'),

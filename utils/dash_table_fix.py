@@ -310,21 +310,7 @@ def create_optimized_products_layout():
                                 className="mb-2",
                                 style={"width": "100%"}
                             )
-                        ], width=6),
-                        dbc.Col([
-                            dbc.Label("Registros por página:", className="fw-bold"),
-                            dcc.Dropdown(
-                                id="table-page-size-produtos",
-                                options=[
-                                    {"label": "10 registros", "value": 10},
-                                    {"label": "25 registros", "value": 25},
-                                    {"label": "50 registros", "value": 50},
-                                    {"label": "100 registros", "value": 100}
-                                ],
-                                value=25,
-                                clearable=False
-                            )
-                        ], width=6)
+                        ], width=12)
                     ], className="mb-3"),
                     
                     # Controles da tabela

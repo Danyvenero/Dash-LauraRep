@@ -11,6 +11,7 @@ from .db import (
     load_produtos_cotados_data,
     get_setting, 
     save_setting, 
+    delete_setting,
     verify_user,
     get_latest_dataset,
     SENTINEL_ALL,
@@ -21,6 +22,7 @@ from .data_loader import DataLoader
 from .kpis import KPICalculator
 from .visualizations import VisualizationGenerator
 from .advanced_analytics import AdvancedAnalytics
+from .filters import apply_filters, determine_hierarchy_level
 from .security import (
     SecurityManager, 
     require_auth, 
@@ -61,6 +63,7 @@ __all__ = [
     'load_all_data',
     'get_setting',
     'save_setting',
+    'delete_setting',
     'verify_user',
     'get_latest_dataset',
     'SENTINEL_ALL',
@@ -69,6 +72,8 @@ __all__ = [
     'KPICalculator',
     'VisualizationGenerator',
     'AdvancedAnalytics',
+    'apply_filters',
+    'determine_hierarchy_level',
     'SecurityManager',
     'require_auth',
     'is_authenticated',
