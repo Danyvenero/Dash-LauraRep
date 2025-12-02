@@ -162,14 +162,21 @@ export default function Produtos() {
             ]}
             layout={{
               title: 'Análise de Bolhas - Clientes vs Produtos',
-              xaxis: { title: 'Produtos (Material)' },
-              yaxis: { title: 'Clientes' },
-              height: 600,
-              paper_bgcolor: 'rgba(0,0,0,0)',
-              plot_bgcolor: 'rgba(0,0,0,0)',
-              font: {
-                color: '#374151',
+              xaxis: { 
+                title: 'Produtos (Material)',
+                gridcolor: '#e5e7eb',
               },
+              yaxis: { 
+                title: 'Clientes',
+                gridcolor: '#e5e7eb',
+              },
+              height: 600,
+              paper_bgcolor: 'transparent',
+              plot_bgcolor: 'transparent',
+              font: {
+                color: document.documentElement.classList.contains('dark') ? '#f3f4f6' : '#374151',
+              },
+              template: document.documentElement.classList.contains('dark') ? 'plotly_dark' : 'plotly_white',
             }}
             config={{ responsive: true }}
             style={{ width: '100%', height: '100%' }}

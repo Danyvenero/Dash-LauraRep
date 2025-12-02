@@ -3,6 +3,7 @@ import { Toaster } from 'react-hot-toast'
 import { useAuthStore } from './store/authStore'
 import Login from './pages/Login'
 import Overview from './pages/Overview'
+import ExecutiveDashboard from './pages/ExecutiveDashboard'
 import KPIsCliente from './pages/KPIsCliente'
 import KPIsPropostas from './pages/KPIsPropostas'
 import Produtos from './pages/Produtos'
@@ -36,6 +37,7 @@ function App() {
           >
             <Route index element={<Navigate to="/overview" replace />} />
             <Route path="overview" element={<Overview />} />
+            <Route path="executivo" element={<ExecutiveDashboard />} />
             <Route path="kpis-cliente" element={<KPIsCliente />} />
             <Route path="kpis-propostas" element={<KPIsPropostas />} />
             <Route path="produtos" element={<Produtos />} />

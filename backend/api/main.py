@@ -12,7 +12,7 @@ import os
 # Adicionar o diretório raiz ao path para importar utils
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../'))
 
-from backend.api.routes import auth, vendas, cotacoes, kpis, uploads, reports, users, etl
+from backend.api.routes import auth, vendas, cotacoes, kpis, uploads, reports, users, etl, propostas, trends
 
 app = FastAPI(
     title="Dashboard WEG API",
@@ -45,6 +45,8 @@ app.include_router(uploads.router, prefix="/api/uploads", tags=["Uploads"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Relatórios"])
 app.include_router(users.router, prefix="/api/users", tags=["Usuários"])
 app.include_router(etl.router, prefix="/api/etl", tags=["ETL"])
+app.include_router(propostas.router, prefix="/api/propostas", tags=["Propostas"])
+app.include_router(trends.router, prefix="/api/trends", tags=["Tendências"])
 
 
 @app.get("/api/health")

@@ -46,6 +46,7 @@ const ArrowRightOnRectangleIcon = (props: any) => (
 
 const navigation = [
   { name: 'Visão Geral', href: '/overview', icon: HomeIcon },
+  { name: 'Dashboard Executivo', href: '/executivo', icon: ChartBarIcon },
   { name: 'KPIs por Cliente', href: '/kpis-cliente', icon: ChartBarIcon },
   { name: 'KPIs de Propostas', href: '/kpis-propostas', icon: DocumentTextIcon },
   { name: 'Produtos (Bolhas)', href: '/produtos', icon: CubeIcon },
