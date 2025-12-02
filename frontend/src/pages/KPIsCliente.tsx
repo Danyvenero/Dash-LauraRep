@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import api from '../services/api'
 import toast from 'react-hot-toast'
 import { formatCurrency, formatDate, formatPercent } from '../utils/format'
+import ScatterChart from '../components/charts/ScatterChart'
+import LineChart from '../components/charts/LineChart'
 
 interface KPICliente {
   cod_cliente: string
@@ -101,6 +103,24 @@ export default function KPIsCliente() {
         </div>
       </div>
 
+      {/* Gráfico Scatter */}
+      {!isLoading && kpis.length > 0 && (
+        <div className="card mb-6">
+          <h3 className="text-lg font-semibold mb-4">Valor Faturado x Dias sem Compra</h3>
+          <ScatterChart
+            data={kpis.map((kpi) => ({
+              x: kpi.total_comprado_valor,
+              y: kpi.dias_sem_compra,
+              size: kpi.mix_produtos * 2,
+              name: kpi.cliente,
+            }))}
+            xLabel="Valor Total Comprado (R$)"
+            yLabel="Dias sem Compra"
+            height={400}
+          />
+        </div>
+      )}
+
       {/* Tabela */}
       {isLoading ? (
         <div className="flex items-center justify-center h-64">
@@ -165,6 +185,34 @@ export default function KPIsCliente() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Botão Download CSV */}
+      {!isLoading && kpis.length > 0 && (
+        <div className="mt-4">
+          <button
+            onClick={async () => {
+              try {
+                const response = await api.get('/reports/csv/kpis-cliente', {
+                  responseType: 'blob',
+                })
+                const url = window.URL.createObjectURL(new Blob([response.data]))
+                const link = document.createElement('a')
+                link.href = url
+                link.setAttribute('download', 'kpis_cliente.csv')
+                document.body.appendChild(link)
+                link.click()
+                link.remove()
+                toast.success('CSV baixado com sucesso!')
+              } catch (error) {
+                toast.error('Erro ao baixar CSV')
+              }
+            }}
+            className="btn-secondary"
+          >
+            Download CSV
+          </button>
         </div>
       )}
     </div>

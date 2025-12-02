@@ -20,7 +20,8 @@
     "zustand": "^4.4.7",
     "react-hot-toast": "^2.4.1",
     "date-fns": "^2.30.0",
-    "clsx": "^2.0.0"
+    "clsx": "^2.0.0",
+    "react-dropzone": "^14.2.3"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",

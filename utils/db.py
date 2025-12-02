@@ -7,12 +7,25 @@ from flask import current_app, g
 from utils.security import hash_password
 
 def get_db():
+    """Retorna conexão do banco (requer contexto Flask)"""
     if 'db' not in g:
         g.db = sqlite3.connect(
             current_app.config['DATABASE']
         )
         g.db.row_factory = sqlite3.Row
     return g.db
+
+def get_db_connection_standalone():
+    """Retorna conexão standalone (sem contexto Flask)"""
+    import os
+    from flask import Flask
+    
+    # Criar app temporário para contexto
+    app = Flask(__name__, instance_relative_config=True)
+    app.config['DATABASE'] = 'instance/database.sqlite'
+    
+    with app.app_context():
+        return get_db()
 
 def close_db(e=None):
     db = g.pop('db', None)
@@ -134,22 +147,59 @@ def get_user_by_username(username):
     return user
 
 def check_raw_fingerprint_exists(fingerprint, table_name):
-    db = get_db()
+    """Verifica se fingerprint já existe (funciona com ou sem contexto Flask)"""
+    try:
+        db = get_db()
+    except RuntimeError:
+        # Sem contexto Flask, usar conexão standalone
+        import sqlite3
+        import os
+        db_path = 'instance/database.sqlite'
+        if not os.path.exists(db_path):
+            return False
+        db = sqlite3.connect(db_path)
+        db.row_factory = sqlite3.Row
+    
     query = f"SELECT id FROM {table_name} WHERE fingerprint = ?"
     result = db.execute(query, (fingerprint,)).fetchone()
+    
+    # Fechar se foi conexão standalone
+    if not hasattr(db, 'commit'):  # Verificação simples
+        db.close()
+    
     return result is not None
 
 def insert_raw_df(df, table_name, filename, fingerprint, user_id):
-    db = get_db()
+    """Insere DataFrame no banco (funciona com ou sem contexto Flask)"""
+    try:
+        db = get_db()
+        use_flask_context = True
+    except RuntimeError:
+        # Sem contexto Flask, usar conexão standalone
+        import sqlite3
+        import os
+        db_path = 'instance/database.sqlite'
+        db = sqlite3.connect(db_path)
+        db.row_factory = sqlite3.Row
+        use_flask_context = False
+    
     df['source_filename'] = filename
     df['fingerprint'] = fingerprint
     df['uploaded_by'] = user_id
     try:
         df.to_sql(table_name, db, if_exists='append', index=False)
-        db.commit()
+        if use_flask_context:
+            db.commit()
+        else:
+            db.commit()
+            db.close()
         return len(df)
     except Exception as e:
-        db.rollback()
+        if use_flask_context:
+            db.rollback()
+        else:
+            db.rollback()
+            db.close()
         print(f"Erro ao inserir dados brutos: {e}")
         return 0
 

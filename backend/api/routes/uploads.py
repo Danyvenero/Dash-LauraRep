@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../../'))
 
 from backend.api.models.schemas import UploadResponse
 from backend.api.routes.auth import get_current_user
-from utils.data_loader import parse_upload_content, generate_fingerprint, read_raw_vendas, read_raw_materiais_cotados
+from utils.data_loader import generate_fingerprint, read_raw_vendas, read_raw_materiais_cotados
 from utils.db import check_raw_fingerprint_exists, insert_raw_df
 from utils import etl
 
@@ -51,7 +51,7 @@ async def upload_vendas(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Erro ao ler arquivo: {str(e)}")
     
-    # Inserir no banco
+    # Inserir no banco usando função existente
     records_inserted = insert_raw_df(
         df, 
         'raw_vendas', 
@@ -107,7 +107,7 @@ async def upload_cotacoes(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Erro ao ler arquivo: {str(e)}")
     
-    # Inserir no banco
+    # Inserir no banco usando função existente
     records_inserted = insert_raw_df(
         df, 
         'raw_materiais_cotados', 
